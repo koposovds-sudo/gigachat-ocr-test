@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Тест Yandex Vision OCR</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; font-family: Arial, Helvetica, sans-serif; background: #f3f6fb; color: #172033; }
+    .page { width: min(920px, calc(100% - 32px)); margin: 40px auto; }
+    .card { background: #fff; border: 1px solid #dfe6f2; border-radius: 18px; box-shadow: 0 16px 45px rgba(38, 61, 105, .09); overflow: hidden; }
+    .head { padding: 28px 30px 22px; border-bottom: 1px solid #e9edf5; }
+    h1 { margin: 0 0 9px; font-size: clamp(24px, 4vw, 34px); }
+    .lead { margin: 0; color: #58677e; line-height: 1.55; }
+    .content { padding: 30px; }
+    .dropzone { display: block; padding: 30px; border: 2px dashed #89a7df; border-radius: 14px; background: #f7faff; text-align: center; cursor: pointer; transition: .2s; }
+    .dropzone:hover, .dropzone.dragover { border-color: #2f6adf; background: #edf4ff; }
+    .dropzone strong { display: block; margin-bottom: 7px; font-size: 18px; }
+    .dropzone span { color: #61708a; font-size: 14px; }
+    #fileInput { display: none; }
+    .file-info { display: none; margin-top: 18px; padding: 14px 16px; border-radius: 10px; background: #f2f6fc; color: #31415d; line-height: 1.5; word-break: break-word; }
+    .controls { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
+    button { border: 0; border-radius: 10px; padding: 13px 18px; font-size: 16px; font-weight: 700; cursor: pointer; transition: .2s; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+    .primary { color: #fff; background: #2864d7; }
+    .primary:hover:not(:disabled) { background: #1d52ba; }
+    .secondary { color: #2856a5; background: #eaf1ff; }
+    .secondary:hover:not(:disabled) { background: #dce9ff; }
+    .status { display: none; margin-top: 22px; padding: 14px 16px; border-radius: 10px; line-height: 1.5; }
+    .status.info { display: block; color: #174a96; background: #eaf3ff; }
+    .status.success { display: block; color: #17643d; background: #e6f7ed; }
+    .status.error { display: block; color: #a42525; background: #ffeded; }
+    .result { display: none; margin-top: 22px; }
+    .result h2 { margin: 0 0 12px; font-size: 21px; }
+    .meta { margin-bottom: 12px; color: #66758d; line-height: 1.5; }
+    pre { margin: 0; max-height: 520px; overflow: auto; padding: 18px; border: 1px solid #dfe6f2; border-radius: 10px; background: #101827; color: #e7eefb; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.55 Consolas, Monaco, monospace; }
+    .note { margin: 22px 0 0; color: #65748d; font-size: 13px; line-height: 1.55; }
+    .note b { color: #273b5d; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="card">
+      <header class="head">
+        <h1>Тест распознавания документов</h1>
+        <p class="lead">Загрузите PDF, JPG или PNG. Файл будет отправлен в вашу Yandex Cloud Function, которая вызовет Yandex Vision OCR и вернёт распознанный текст.</p>
+      </header>
+      <div class="content">
+        <label class="dropzone" id="dropzone" for="fileInput">
+          <strong>Выбрать документ</strong>
+          <span>Поддерживаются PDF, JPG, JPEG и PNG. Максимальный размер — 10 МБ.</span>
+        </label>
+        <input id="fileInput" type="file" accept="application/pdf,image/jpeg,image/png">
+        <div class="file-info" id="fileInfo"></div>
+        <div class="controls">
+          <button class="primary" id="recognizeButton" type="button" disabled>Распознать текст</button>
+          <button class="secondary" id="clearButton" type="button" disabled>Очистить</button>
+        </div>
+        <div class="status" id="status" role="status" aria-live="polite"></div>
+        <section class="result" id="result">
+          <h2>Распознанный текст</h2>
+          <div class="meta" id="resultMeta"></div>
+          <pre id="resultText"></pre>
+        </section>
+        <p class="note"><b>Конфиденциальность:</b> страница не содержит API-ключей. Файл передаётся только в Cloud Function для выполнения OCR. Не загружайте документы, если вы не согласны с такой обработкой.</p>
+      </div>
+    </section>
+  </main>
+  <script>
+    'use strict';
+    const FUNCTION_URL = 'https://functions.yandexcloud.net/d4e6gg7qd3tlqotvn86c';
+    const MAX_FILE_SIZE = 10 * 1024 * 1024;
+    const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+    const fileInput = document.getElementById('fileInput');
+    const dropzone = document.getElementById('dropzone');
+    const fileInfo = document.getElementById('fileInfo');
+    const recognizeButton = document.getElementById('recognizeButton');
+    const clearButton = document.getElementById('clearButton');
+    const statusBox = document.getElementById('status');
+    const result = document.getElementById('result');
+    const resultMeta = document.getElementById('resultMeta');
+    const resultText = document.getElementById('resultText');
+    let selectedFile = null;
+    function formatBytes(bytes) { if (bytes < 1024) return bytes + ' Б'; if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ'; return (bytes / (1024 * 1024)).toFixed(2) + ' МБ'; }
+    function showStatus(type, text) { statusBox.className = 'status ' + type; statusBox.textContent = text; }
+    function hideStatus() { statusBox.className = 'status'; statusBox.textContent = ''; }
+    function resetResult() { result.style.display = 'none'; resultMeta.textContent = ''; resultText.textContent = ''; }
+    function resetFile() { selectedFile = null; fileInput.value = ''; fileInfo.style.display = 'none'; fileInfo.textContent = ''; recognizeButton.disabled = true; clearButton.disabled = true; hideStatus(); resetResult(); }
+    function selectFile(file) {
+      resetResult(); hideStatus();
+      if (!file) { resetFile(); return; }
+      if (ALLOWED_TYPES.indexOf(file.type) === -1) { resetFile(); showStatus('error', 'Неподдерживаемый тип файла. Выберите PDF, JPG, JPEG или PNG.'); return; }
+      if (file.size > MAX_FILE_SIZE) { resetFile(); showStatus('error', 'Размер файла превышает 10 МБ. Выберите файл меньшего размера.'); return; }
+      selectedFile = file;
+      fileInfo.style.display = 'block';
+      fileInfo.textContent = 'Выбран файл: ' + file.name + ' · ' + formatBytes(file.size) + ' · ' + file.type;
+      recognizeButton.disabled = false; clearButton.disabled = false;
+    }
+    function fileToBase64(file) { return new Promise(function(resolve, reject) { const reader = new FileReader(); reader.onload = function() { const value = String(reader.result || ''); const commaPosition = value.indexOf(','); resolve(commaPosition >= 0 ? value.slice(commaPosition + 1) : value); }; reader.onerror = function() { reject(new Error('Не удалось прочитать выбранный файл.')); }; reader.readAsDataURL(file); }); }
+    async function recognize() {
+      if (!selectedFile) { showStatus('error', 'Сначала выберите файл.'); return; }
+      recognizeButton.disabled = true; clearButton.disabled = true; resetResult();
+      showStatus('info', 'Читаем файл и отправляем в Yandex Vision OCR… Это может занять до нескольких минут для PDF.');
+      try {
+        const base64 = await fileToBase64(selectedFile);
+        const response = await fetch(FUNCTION_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ocr', fileName: selectedFile.name, mimeType: selectedFile.type, fileBase64: base64 }) });
+        let envelope;
+        try { envelope = await response.json(); } catch (error) { throw new Error('Cloud Function вернула ответ не в формате JSON.'); }
+        let payload = envelope;
+        if (typeof envelope.body === 'string') { try { payload = JSON.parse(envelope.body); } catch (error) { throw new Error('Не удалось прочитать ответ Cloud Function.'); } }
+        if (!response.ok || !payload.ok) { throw new Error(payload.error || ('Ошибка Cloud Function: HTTP ' + response.status)); }
+        resultMeta.textContent = 'Файл: ' + payload.fileName + ' · Страниц: ' + payload.pages + ' · Символов: ' + payload.characters;
+        resultText.textContent = payload.text || ''; result.style.display = 'block'; showStatus('success', 'Готово: текст успешно распознан.');
+      } catch (error) { showStatus('error', 'Ошибка распознавания: ' + (error.message || 'неизвестная ошибка')); }
+      finally { recognizeButton.disabled = !selectedFile; clearButton.disabled = !selectedFile; }
+    }
+    fileInput.addEventListener('change', function(event) { selectFile(event.target.files && event.target.files[0]); });
+    recognizeButton.addEventListener('click', recognize); clearButton.addEventListener('click', resetFile);
+    ['dragenter', 'dragover'].forEach(function(eventName) { dropzone.addEventListener(eventName, function(event) { event.preventDefault(); dropzone.classList.add('dragover'); }); });
+    ['dragleave', 'drop'].forEach(function(eventName) { dropzone.addEventListener(eventName, function(event) { event.preventDefault(); dropzone.classList.remove('dragover'); }); });
+    dropzone.addEventListener('drop', function(event) { const files = event.dataTransfer && event.dataTransfer.files; selectFile(files && files[0]); });
+  </script>
+</body>
+</html>
