@@ -479,7 +479,7 @@ function upperRus(value) {
 function titleCaseRus(value) {
   return normalizeRusText(value)
     .toLowerCase()
-    .replace(/(^|[\s-])([а-яa-z])/giu, (m, p1, p2) => `${p1}${p2.toUpperCase()}`);
+    .replace(/(^|[\s.-])([а-яa-z])/giu, (m, p1, p2) => `${p1}${p2.toUpperCase()}`);
 }
 
 function onlyDigits(value) {
@@ -594,6 +594,236 @@ async function recognizePassportPageRaw(file, model = 'page') {
  * в распознанном тексте и возвращает строгий JSON по схеме.
  * ═══════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════
+ * MRZ — машиночитаемая зона. Единственный источник в паспорте,
+ * где серия, номер, даты и код подразделения защищены контрольными
+ * цифрами, поэтому для этих полей она надёжнее любого распознавания
+ * рукописного бланка.
+ * Схема РФ: строка 2 = [3 цифры серии][6 цифр номера][КЦ]RUS[ГГММДД рождения][КЦ][пол]
+ *           затем доп. данные = [4-я цифра серии][ГГММДД выдачи][6 цифр кода].
+ * ═══════════════════════════════════════════════════════ */
+
+const MRZ_DIGIT_FIX = { O: '0', Q: '0', I: '1', L: '1', S: '5', B: '8', Z: '2', G: '6' };
+const MRZ_DIGITS = '[0-9OQILSBZG]';
+
+function mrzToDigits(value) {
+  return String(value || '')
+    .toUpperCase()
+    .split('')
+    .map((ch) => MRZ_DIGIT_FIX[ch] || ch)
+    .join('')
+    .replace(/[^0-9]/g, '');
+}
+
+function mrzCheckDigit(value) {
+  const weights = [7, 3, 1];
+  let sum = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    const ch = value[i];
+    const digit = ch === '<' ? 0 : Number(ch);
+    if (!Number.isFinite(digit)) return null;
+    sum += digit * weights[i % 3];
+  }
+  return sum % 10;
+}
+
+/* Двузначный год: будущее невозможно ни для рождения, ни для выдачи. */
+function mrzYear(yy) {
+  const current = new Date().getFullYear() % 100;
+  const century = Number(yy) > current ? 1900 : 2000;
+  return century + Number(yy);
+}
+
+function mrzDate(sixDigits) {
+  if (!/^\d{6}$/.test(sixDigits)) return '';
+  const year  = mrzYear(sixDigits.slice(0, 2));
+  const month = sixDigits.slice(2, 4);
+  const day   = sixDigits.slice(4, 6);
+  if (Number(month) < 1 || Number(month) > 12 || Number(day) < 1 || Number(day) > 31) return '';
+  return `${day}.${month}.${year}`;
+}
+
+function findMrzLines(text) {
+  const lines = String(text || '')
+    .split(/\n+/)
+    .map((line) => line.toUpperCase().replace(/\s+/g, ''))
+    .filter((line) => line.length >= 20);
+
+  let line1 = '';
+  let line2 = '';
+
+  for (const line of lines) {
+    if (!line2 && /RU[S5]/.test(line) && (line.match(/[0-9OQILSBZG]/g) || []).length >= 20) line2 = line;
+    else if (!line1 && /^P[NH]|<</.test(line) && /[A-Z]{4}/.test(line)) line1 = line;
+  }
+
+  return { line1, line2 };
+}
+
+function parseMrzNames(line1) {
+  if (!line1) return { surname: '', given: [] };
+
+  // Убираем префикс PN и код страны, дальше фамилия << имена, разделённые <.
+  const body = line1.replace(/^P[NH]?/, '').replace(/^RU[S5]/, '').replace(/[^A-Z<]/g, '');
+  const [surnamePart, givenPart = ''] = body.split(/<<+/);
+
+  return {
+    surname: String(surnamePart || '').replace(/</g, ''),
+    given:   givenPart.split('<').map((part) => part.trim()).filter((part) => part.length >= 2),
+  };
+}
+
+function parseMrz(text) {
+  const { line1, line2 } = findMrzLines(text);
+  if (!line2) return null;
+
+  const pattern = new RegExp(
+    `(${MRZ_DIGITS}{9})(${MRZ_DIGITS})RU[S5](${MRZ_DIGITS}{6})(${MRZ_DIGITS})([MF])<*(${MRZ_DIGITS}{13})?`
+  );
+  const match = line2.match(pattern);
+  if (!match) return null;
+
+  const docNumber   = mrzToDigits(match[1]);
+  const docCheck    = mrzToDigits(match[2]);
+  const birthDigits = mrzToDigits(match[3]);
+  const birthCheck  = mrzToDigits(match[4]);
+  const sex         = match[5];
+  const optional    = mrzToDigits(match[6] || '');
+
+  if (docNumber.length !== 9 || birthDigits.length !== 6) return null;
+
+  const seriesTail     = optional.slice(0, 1);
+  const issueDigits    = optional.slice(1, 7);
+  const departmentCode = optional.slice(7, 13);
+
+  const names = parseMrzNames(line1);
+
+  return {
+    passportSeries: seriesTail ? docNumber.slice(0, 3) + seriesTail : '',
+    passportNumber: docNumber.slice(3, 9),
+    birthDate:      mrzDate(birthDigits),
+    issueDate:      mrzDate(issueDigits),
+    departmentCode: /^\d{6}$/.test(departmentCode)
+      ? `${departmentCode.slice(0, 3)}-${departmentCode.slice(3, 6)}`
+      : '',
+    sex:            sex === 'M' ? 'МУЖ' : 'ЖЕН',
+    surnameLat:     names.surname,
+    givenLat:       names.given,
+    checks: {
+      documentNumber: mrzCheckDigit(docNumber) === Number(docCheck),
+      birthDate:      mrzCheckDigit(birthDigits) === Number(birthCheck),
+    },
+  };
+}
+
+/* ── Сопоставление русских слов из бланка с латиницей MRZ ── */
+
+const TRANSLIT_RU = {
+  А: 'A', Б: 'B', В: 'V', Г: 'G', Д: 'D', Е: 'E', Ё: 'E', Ж: 'ZH', З: 'Z', И: 'I',
+  Й: 'I', К: 'K', Л: 'L', М: 'M', Н: 'N', О: 'O', П: 'P', Р: 'R', С: 'S', Т: 'T',
+  У: 'U', Ф: 'F', Х: 'KH', Ц: 'TS', Ч: 'CH', Ш: 'SH', Щ: 'SHCH', Ъ: 'IE', Ы: 'Y',
+  Ь: '', Э: 'E', Ю: 'IU', Я: 'IA',
+};
+
+function translitRus(value) {
+  return upperRus(value)
+    .split('')
+    .map((ch) => (ch in TRANSLIT_RU ? TRANSLIT_RU[ch] : /[A-Z]/.test(ch) ? ch : ''))
+    .join('');
+}
+
+function levenshtein(a, b) {
+  if (a === b) return 0;
+  if (!a.length || !b.length) return Math.max(a.length, b.length);
+
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i += 1) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      row[j] = Math.min(row[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    prev = row;
+  }
+  return prev[b.length];
+}
+
+function nameSimilarity(cyrillic, latin) {
+  const left  = translitRus(cyrillic);
+  const right = String(latin || '').toUpperCase().replace(/[^A-Z]/g, '');
+  if (!left || !right) return 0;
+
+  const distance = levenshtein(left, right);
+  return 1 - distance / Math.max(left.length, right.length);
+}
+
+const NAME_STOPWORDS = new Set([
+  'РОССИЙСКАЯ', 'ФЕДЕРАЦИЯ', 'ПАСПОРТ', 'ВЫДАН', 'ДАТА', 'ВЫДАЧИ', 'КОД',
+  'ПОДРАЗДЕЛЕНИЯ', 'ЛИЧНАЯ', 'ПОДПИСЬ', 'ЛИЧНЫЙ', 'ФАМИЛИЯ', 'ИМЯ', 'ОТЧЕСТВО',
+  'ПОЛ', 'МУЖ', 'ЖЕН', 'МЕСТО', 'РОЖДЕНИЯ', 'ОБЛАСТЬ', 'ОБЛ', 'РЕСПУБЛИКА',
+  'КРАЙ', 'РАЙОН', 'ГОРОД', 'ГОР', 'СЕЛО', 'ПОСЕЛОК', 'РОССИИ', 'МВД', 'ГУ',
+  'УФМС', 'ОУФМС', 'ОВД', 'ГОВД', 'РОВД', 'УВД', 'ГУВД',
+]);
+
+/*
+ * Шаблонная модель иногда сдвигает поля (в «Фамилию» попадает «МУЖ»),
+ * поэтому ФИО собираем по совпадению с латиницей MRZ — она однозначно
+ * задаёт порядок: фамилия, имя, отчество.
+ */
+function namesFromMrz(mainText, mrz) {
+  const empty = { lastName: '', firstName: '', middleName: '' };
+  if (!mrz || (!mrz.surnameLat && !mrz.givenLat.length)) return empty;
+
+  const tokens = Array.from(new Set(
+    upperRus(stripMrz(mainText))
+      .split(/[^А-ЯЁ-]+/)
+      .map((token) => token.replace(/^-+|-+$/g, ''))
+      .filter((token) => token.length >= 3 && !NAME_STOPWORDS.has(token))
+  ));
+
+  const targets = [mrz.surnameLat, mrz.givenLat[0] || '', mrz.givenLat[1] || ''];
+  const keys    = ['lastName', 'firstName', 'middleName'];
+  const result  = { ...empty };
+  const used    = new Set();
+
+  targets.forEach((target, index) => {
+    if (!target) return;
+
+    let best = { token: '', score: 0 };
+    for (const token of tokens) {
+      if (used.has(token)) continue;
+      const score = nameSimilarity(token, target);
+      if (score > best.score) best = { token, score };
+    }
+
+    // Порог отсекает случайные совпадения, но терпит типичные ошибки OCR.
+    if (best.score >= 0.7) {
+      used.add(best.token);
+      result[keys[index]] = titleCaseRus(best.token);
+    }
+  });
+
+  return result;
+}
+
+function personFromMrz(mainText, mrz) {
+  if (!mrz) return null;
+
+  const names = namesFromMrz(mainText, mrz);
+
+  return {
+    ...names,
+    birthDate:           mrz.birthDate,
+    birthPlace:          '',
+    passportSeries:      mrz.passportSeries,
+    passportNumber:      mrz.passportNumber,
+    issuedBy:            '',
+    departmentCode:      mrz.departmentCode,
+    issueDate:           mrz.issueDate,
+    registrationAddress: '',
+  };
+}
+
 const PASSPORT_FIELDS = [
   'lastName', 'firstName', 'middleName', 'birthDate', 'birthPlace',
   'passportSeries', 'passportNumber', 'issuedBy', 'departmentCode',
@@ -623,22 +853,36 @@ const LLM_SYSTEM_PROMPT = [
   'Строгие правила:',
   '1. Бери только то, что есть в тексте. Ничего не выдумывай и не достраивай.',
   '2. Если поле не найдено или есть сомнения — верни пустую строку.',
-  '3. Строки MRZ (латиница с символами <, например PNRUSIVANOV<<IVAN<<) игнорируй полностью.',
+  '3. Строки MRZ (латиница с символами <) в текст не включай: проверенные значения из MRZ даны отдельным блоком «Проверенные данные MRZ» — считай их истиной и не противоречь им.',
   '4. ФИО — только русскими буквами, в именительном падеже, каждое слово с большой буквы.',
   '5. Даты — в формате ДД.ММ.ГГГГ. Дата рождения раньше даты выдачи.',
   '6. Серия — 4 цифры, номер — 6 цифр. В бланке они напечатаны вертикально справа как 10 цифр.',
   '7. В поле issuedBy не включай подписи полей («Дата выдачи», «Код подразделения»), пол (МУЖ/ЖЕН), гражданство (RUS), даты и цифры кода.',
   '8. Адрес регистрации бери только из блока «Страница регистрации», собери в одну строку без повторов слов.',
   '9. Исправляй явные ошибки OCR в типовых словах (проскакт → проспект, улица, город, область, район, дом, квартира), но не меняй цифры и имена собственные.',
-  '10. Ответ — только JSON по схеме, без пояснений.',
+  '10. Если в блоке «Проверенные данные MRZ» есть фамилия, имя, отчество латиницей — подбери русское написание, совпадающее с этой латиницей.',
+  '11. Ответ — только JSON по схеме, без пояснений.',
 ].join('\n');
 
-function buildLlmUserMessage(mainText, registrationText, entities) {
+function buildLlmUserMessage(mainText, registrationText, entities, mrz) {
   const entityLines = Object.entries(asObject(entities))
     .map(([name, text]) => `${name}: ${text}`)
     .join('\n');
 
+  const mrzLines = mrz ? [
+    `Серия: ${mrz.passportSeries || '(нет)'}`,
+    `Номер: ${mrz.passportNumber || '(нет)'}`,
+    `Дата рождения: ${mrz.birthDate || '(нет)'}`,
+    `Дата выдачи: ${mrz.issueDate || '(нет)'}`,
+    `Код подразделения: ${mrz.departmentCode || '(нет)'}`,
+    `Пол: ${mrz.sex || '(нет)'}`,
+    `ФИО латиницей: ${[mrz.surnameLat, ...(mrz.givenLat || [])].filter(Boolean).join(' ') || '(нет)'}`,
+  ].join('\n') : '(MRZ не прочитана)';
+
   return [
+    'Проверенные данные MRZ (контрольные цифры совпали):',
+    mrzLines,
+    '',
     'Основной разворот (OCR):',
     stripMrz(mainText).slice(0, 4000) || '(пусто)',
     '',
@@ -689,7 +933,7 @@ function normalizeLlmPerson(data) {
   };
 }
 
-async function llmExtractPassport(mainText, registrationText, entities) {
+async function llmExtractPassport(mainText, registrationText, entities, mrz) {
   if (!LLM_ENABLED)               return { person: null, error: 'Интеллектуальный разбор отключен (LLM_ENABLED=false).' };
   if (!LLM_API_KEY || !YC_FOLDER_ID) return { person: null, error: 'Не настроены LLM_API_KEY/VISION_API_KEY или YC_FOLDER_ID.' };
 
@@ -699,7 +943,7 @@ async function llmExtractPassport(mainText, registrationText, entities) {
     jsonSchema: { schema: PASSPORT_JSON_SCHEMA },
     messages: [
       { role: 'system', text: LLM_SYSTEM_PROMPT },
-      { role: 'user',   text: buildLlmUserMessage(mainText, registrationText, entities) },
+      { role: 'user',   text: buildLlmUserMessage(mainText, registrationText, entities, mrz) },
     ],
   };
 
@@ -797,7 +1041,7 @@ function extractPassportSeriesAndNumber(text) {
  * гражданство (RUS), пол (МУЖ/ЖЕН), подписи полей.
  */
 /* titleCaseRus портит аббревиатуры органов — возвращаем их в верхний регистр. */
-const ORG_ABBREVIATIONS = ['ОУФМС', 'УФМС', 'ГУМВД', 'ГУВД', 'ГОВД', 'РОВД', 'МВД', 'ОВД', 'УВД', 'ФМС', 'МО', 'ТП'];
+const ORG_ABBREVIATIONS = ['ОУФМС', 'УФМС', 'ГУМВД', 'ГУВД', 'ГОВД', 'РОВД', 'УМВД', 'МВД', 'ОВД', 'УВД', 'ФМС', 'ГУ', 'МО', 'ТП'];
 
 function restoreAbbreviations(value) {
   let result = String(value || '');
@@ -806,6 +1050,14 @@ function restoreAbbreviations(value) {
     result = result.replace(pattern, (m, prefix) => `${prefix}${abbr}`);
   }
   return result;
+}
+
+/* Предлоги и союзы внутри названия органа пишутся со строчной буквы. */
+function lowerServiceWords(value) {
+  return String(value || '').replace(
+    /(\S)\s(По|И|В|На|От|При|Для)(?=\s|$|\.)/g,
+    (match, prev, word) => `${prev} ${word.toLowerCase()}`
+  );
 }
 
 function cleanIssuedBy(value) {
@@ -821,11 +1073,11 @@ function cleanIssuedBy(value) {
 
   // Если в строке есть название органа — начинаем с него или с предшествующего определения.
   const orgMatch = result.match(
-    /([А-Яа-яёЁ-]+ским\s+)?(ОВД|ГОВД|РОВД|УВД|ГУВД|УФМС|ОУФМС|МВД|ГУМВД|Отделом|Отделением|Отдел|Отделение)[\s\S]*/i
+    /([А-Яа-яёЁ-]+ским\s+)?(ГУ\s+МВД|ГУМВД|УМВД|МВД|ОУФМС|УФМС|ФМС|ГОВД|РОВД|ГУВД|УВД|ОВД|ТП|Отделом|Отделением|Отдел|Отделение)[\s\S]*/i
   );
   if (orgMatch) result = orgMatch[0].trim();
 
-  result = restoreAbbreviations(titleCaseRus(result));
+  result = lowerServiceWords(restoreAbbreviations(titleCaseRus(result)));
   const labels = ['дата выдачи', 'кем выдан', 'паспорт выдан', 'код подразделения'];
   if (labels.includes(result.toLowerCase()) || result.length < 8) return '';
 
@@ -1118,15 +1370,17 @@ async function recognizePassportPage(input) {
  * - регулярки остаются последним резервом.
  */
 const FIELD_PRIORITY = {
-  lastName:            ['entities', 'llm', 'text'],
-  firstName:           ['entities', 'llm', 'text'],
-  middleName:          ['entities', 'llm', 'text'],
-  birthDate:           ['entities', 'llm', 'text'],
-  birthPlace:          ['entities', 'llm', 'text'],
-  passportSeries:      ['entities', 'llm', 'text'],
-  passportNumber:      ['entities', 'llm', 'text'],
-  departmentCode:      ['entities', 'llm', 'text'],
-  issueDate:           ['entities', 'llm', 'text'],
+  // MRZ защищена контрольными цифрами — для цифр, дат и ФИО она первая.
+  lastName:            ['mrz', 'entities', 'llm', 'text'],
+  firstName:           ['mrz', 'entities', 'llm', 'text'],
+  middleName:          ['mrz', 'entities', 'llm', 'text'],
+  birthDate:           ['mrz', 'entities', 'llm', 'text'],
+  passportSeries:      ['mrz', 'entities', 'llm', 'text'],
+  passportNumber:      ['mrz', 'entities', 'llm', 'text'],
+  departmentCode:      ['mrz', 'entities', 'llm', 'text'],
+  issueDate:           ['mrz', 'entities', 'llm', 'text'],
+  // Этих полей в MRZ нет — их ищет языковая модель.
+  birthPlace:          ['llm', 'entities', 'text'],
   issuedBy:            ['llm', 'entities', 'text'],
   registrationAddress: ['llm', 'text', 'entities'],
 };
@@ -1170,6 +1424,9 @@ async function extractPassport(input) {
     ? await recognizePassportPageRaw(registrationPage, 'page')
     : { text: '', lines: [], entities: {} };
 
+  // MRZ может попасть и на страницу регистрации (там дублируются серия и номер).
+  const mrz          = parseMrz(mainResult.text) || parseMrz(registrationResult.text);
+  const fromMrz      = personFromMrz(mainResult.text, mrz);
   const fromEntities = personFromEntities(mainResult.entities);
   const fromText     = extractPassportFromTexts(mainResult.text, registrationResult.text).person;
 
@@ -1177,10 +1434,12 @@ async function extractPassport(input) {
   const llmResult = await llmExtractPassport(
     mainResult.text,
     registrationResult.text,
-    mainResult.entities
+    mainResult.entities,
+    mrz
   );
 
   const merged = mergePassportSources({
+    mrz:      fromMrz || {},
     entities: fromEntities,
     llm:      llmResult.person || {},
     text:     fromText,
@@ -1197,6 +1456,11 @@ async function extractPassport(input) {
   if (!usedLlm) {
     warnings.push(`Интеллектуальный разбор не применён: ${llmResult.error || 'модель не вернула поля'}.`);
   }
+  if (!mrz) {
+    warnings.push('Не прочитана машиночитаемая зона (две строки латиницей внизу разворота) — серия, номер и даты взяты из бланка и могут быть неточными. Переснимите разворот так, чтобы эти строки полностью попали в кадр.');
+  } else if (!mrz.checks.documentNumber || !mrz.checks.birthDate) {
+    warnings.push('Машиночитаемая зона прочитана с ошибкой контрольной цифры — проверьте серию, номер и дату рождения по оригиналу.');
+  }
 
   return {
     ok:            true,
@@ -1205,7 +1469,8 @@ async function extractPassport(input) {
     person,
     missingFields: buildMissingFields(person),
     warnings,
-    source:        usedLlm ? 'llm_assisted' : (usedEntities ? 'vision_passport_model' : 'text_fallback'),
+    source:        mrz ? 'mrz_plus_llm' : (usedLlm ? 'llm_assisted' : (usedEntities ? 'vision_passport_model' : 'text_fallback')),
+    mrz: mrz ? { read: true, checks: mrz.checks, sex: mrz.sex } : { read: false },
     fieldSource:   merged.fieldSource,
     llm: {
       used:          usedLlm,
@@ -1219,6 +1484,8 @@ async function extractPassport(input) {
     },
     // Диагностика: видна только владельцу страницы, помогает понять, что прочитал OCR.
     debug: input.debug === true ? {
+      mrzRaw:                mrz || null,
+      mrzPerson:             fromMrz || null,
       entities:              mainResult.entities,
       mainTextPreview:       String(mainResult.text || '').slice(0, 1500),
       registrationPreview:   String(registrationResult.text || '').slice(0, 1000),

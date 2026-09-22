@@ -99,8 +99,11 @@
     .cam-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
     .cam-frame { position: absolute; border: 3px solid rgba(255,255,255,.95); border-radius: 10px; box-shadow: 0 0 0 100vmax rgba(4,10,20,.58); pointer-events: none; }
     .cam-frame::after { content: attr(data-hint); position: absolute; left: 0; right: 0; bottom: -30px; color: #fff; font-size: 12px; font-weight: 600; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
-    .cam-mrz { position: absolute; left: 4%; right: 4%; bottom: 5%; height: 15%; border: 2px dashed rgba(255,214,94,.95); border-radius: 6px; }
-    .cam-mrz::after { content: 'MRZ — две строки в кадре'; position: absolute; left: 0; right: 0; top: -20px; color: #ffd65e; font-size: 11px; font-weight: 700; text-align: center; }
+    .cam-zone { position: absolute; border: 2px dashed rgba(255,214,94,.95); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+    .cam-zone span { color: #ffd65e; font-size: 11px; font-weight: 700; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.7); padding: 2px; }
+    .cam-zone.turned span { writing-mode: vertical-rl; }
+    .cam-series { border-color: rgba(125,211,252,.95); }
+    .cam-series span { color: #7dd3fc; }
     .cam-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); background: #0b1a2e; }
     .cam-bar button { flex: 1 1 130px; }
     .cam-msg { flex: 1 1 100%; min-height: 20px; color: #ffd65e; font-size: 13px; font-weight: 600; text-align: center; }
@@ -279,11 +282,15 @@
   <div class="cam" id="cam" role="dialog" aria-modal="true" aria-label="Съёмка документа">
     <div class="cam-stage" id="cam-stage">
       <video id="cam-video" playsinline muted autoplay></video>
-      <div class="cam-frame" id="cam-frame" data-hint=""><div class="cam-mrz" id="cam-mrz"></div></div>
+      <div class="cam-frame" id="cam-frame" data-hint="">
+        <div class="cam-zone cam-mrz" id="cam-mrz"><span>MRZ — две строки</span></div>
+        <div class="cam-zone cam-series" id="cam-series"><span>Серия и номер</span></div>
+      </div>
     </div>
     <div class="cam-bar">
       <div class="cam-msg" id="cam-msg"></div>
       <button type="button" id="cam-shot" onclick="captureFromCamera()">Снять кадр</button>
+      <button type="button" class="btn-secondary" onclick="rotateCameraFrame()">Повернуть рамку</button>
       <button type="button" class="btn-secondary" id="cam-force" onclick="acceptPendingCapture()" hidden>Использовать всё равно</button>
       <button type="button" class="btn-secondary" onclick="closeCamera()">Отмена</button>
     </div>
@@ -458,9 +465,25 @@
      * Одна страница (регистрация): 88 × 125 мм → 0,704 : 1 (вертикально).
      */
     const CAPTURE_PRESETS = {
-      main: { aspect: 176 / 125, hint: 'Весь разворот в рамке, MRZ внизу', showMrz: true  },
-      reg:  { aspect: 88  / 125, hint: 'Страница со штампом целиком в рамке', showMrz: false },
+      // Разворот со фотографией — две страницы, 176 × 125 мм. Серия и номер напечатаны
+      // вертикально у правого края, MRZ — двумя строками внизу.
+      main: {
+        pageRatio: 176 / 125,
+        hint: 'Разворот с фото — 2 страницы целиком',
+        seriesEdge: 'right',
+        showMrz: true,
+      },
+      // Страница с пропиской — одна страница, 88 × 125 мм, серия и номер снизу.
+      reg: {
+        pageRatio: 88 / 125,
+        hint: 'Страница с пропиской — 1 страница целиком',
+        seriesEdge: 'bottom',
+        showMrz: false,
+      },
     };
+
+    // Телефон держат вертикально, поэтому документ кладут повёрнутым: рамка по умолчанию вертикальная.
+    const DEFAULT_FRAME_TURNED = { main: true, reg: false };
 
     // Пороги качества: ниже них OCR почти всегда даёт мусор.
     const QUALITY = { minShortSide: 900, minSharpness: 55, maxOverexposed: 0.16 };
@@ -468,7 +491,7 @@
     // У съёмки порог по разрешению ниже: кадр обрезается по рамке, и на слабых камерах пикселей меньше.
     const CAMERA_MIN_SHORT_SIDE = 640;
 
-    const cameraSession = { stream: null, personType: null, page: null };
+    const cameraSession = { stream: null, personType: null, page: null, turned: false };
     let pendingCapture = null;
 
     function switchTab(personType) {
@@ -687,24 +710,77 @@
       const stage  = document.getElementById('cam-stage');
       const frame  = document.getElementById('cam-frame');
 
+      // Повёрнутая рамка = документ лежит боком, поэтому пропорции переворачиваем.
+      const aspect = cameraSession.turned ? 1 / preset.pageRatio : preset.pageRatio;
+
       const availableW = stage.clientWidth  * 0.94;
       const availableH = stage.clientHeight * 0.88;
 
       let width  = availableW;
-      let height = width / preset.aspect;
+      let height = width / aspect;
 
       if (height > availableH) {
         height = availableH;
-        width  = height * preset.aspect;
+        width  = height * aspect;
       }
 
       frame.style.width  = `${Math.round(width)}px`;
       frame.style.height = `${Math.round(height)}px`;
       frame.style.left   = `${Math.round((stage.clientWidth  - width)  / 2)}px`;
       frame.style.top    = `${Math.round((stage.clientHeight - height) / 2)}px`;
-      frame.dataset.hint = preset.hint;
+      frame.dataset.hint = cameraSession.turned
+        ? `${preset.hint} — серия и номер внизу`
+        : preset.hint;
 
-      document.getElementById('cam-mrz').style.display = preset.showMrz ? 'block' : 'none';
+      layoutCameraZones(preset);
+    }
+
+    /*
+     * Зоны-подсказки привязаны к краям документа, а не экрана: при повороте рамки
+     * правый край становится нижним, нижний — левым.
+     */
+    const TURNED_EDGE = { right: 'bottom', bottom: 'left', left: 'top', top: 'right' };
+
+    function layoutCameraZones(preset) {
+      const seriesEdge = cameraSession.turned ? TURNED_EDGE[preset.seriesEdge] : preset.seriesEdge;
+      const mrzEdge    = cameraSession.turned ? TURNED_EDGE.bottom : 'bottom';
+
+      placeCameraZone('cam-series', seriesEdge, 10);
+      const mrz = document.getElementById('cam-mrz');
+      if (!preset.showMrz) {
+        mrz.style.display = 'none';
+      } else {
+        mrz.style.display = 'flex';
+        placeCameraZone('cam-mrz', mrzEdge, 16);
+      }
+    }
+
+    function placeCameraZone(id, edge, thicknessPercent) {
+      const zone = document.getElementById(id);
+      const t    = `${thicknessPercent}%`;
+      const pad  = '3%';
+
+      zone.style.cssText = zone.style.cssText
+        .replace(/(top|right|bottom|left|width|height):[^;]*;?/g, '');
+
+      if (edge === 'bottom') Object.assign(zone.style, { left: pad, right: pad, bottom: pad, top: 'auto', width: 'auto', height: t });
+      if (edge === 'top')    Object.assign(zone.style, { left: pad, right: pad, top: pad, bottom: 'auto', width: 'auto', height: t });
+      if (edge === 'right')  Object.assign(zone.style, { top: pad, bottom: pad, right: pad, left: 'auto', height: 'auto', width: t });
+      if (edge === 'left')   Object.assign(zone.style, { top: pad, bottom: pad, left: pad, right: 'auto', height: 'auto', width: t });
+
+      // Вертикальную полосу подписываем вертикальным текстом, иначе он не влезает.
+      zone.classList.toggle('turned', edge === 'right' || edge === 'left');
+    }
+
+    function rotateCameraFrame() {
+      cameraSession.turned = !cameraSession.turned;
+      layoutCameraFrame();
+      setCameraMessage(
+        cameraSession.turned
+          ? 'Положите документ боком: серия и номер — внизу рамки. Снимок повернём сами.'
+          : 'Документ обычной ориентации: серия и номер — справа.',
+        false
+      );
     }
 
     async function openCamera(personType, page) {
@@ -715,6 +791,7 @@
 
       cameraSession.personType = personType;
       cameraSession.page = page;
+      cameraSession.turned = DEFAULT_FRAME_TURNED[page] !== false;
 
       const modal = document.getElementById('cam');
       const video = document.getElementById('cam-video');
@@ -742,7 +819,12 @@
       await video.play().catch(() => {});
 
       layoutCameraFrame();
-      setCameraMessage('Положите документ ровно в рамку и снимите кадр.', false);
+      setCameraMessage(
+        cameraSession.turned
+          ? 'Положите документ боком в рамку: серия и номер — внизу. Снимок повернём сами.'
+          : 'Положите документ ровно в рамку и снимите кадр.',
+        false
+      );
     }
 
     function closeCamera() {
@@ -781,6 +863,21 @@
       };
     }
 
+    /* Поворот против часовой стрелки: серия и номер снова оказываются справа. */
+    function rotateCanvasCcw(source) {
+      const rotated = document.createElement('canvas');
+      rotated.width  = source.height;
+      rotated.height = source.width;
+
+      const ctx = rotated.getContext('2d');
+      if (!ctx) return source;
+
+      ctx.translate(0, rotated.height);
+      ctx.rotate(-Math.PI / 2);
+      ctx.drawImage(source, 0, 0);
+      return rotated;
+    }
+
     function canvasToFile(canvas, name) {
       return new Promise((resolve) => {
         canvas.toBlob(
@@ -813,9 +910,12 @@
       }
       ctx.drawImage(video, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, rect.sw, rect.sh);
 
-      const note  = describeQuality(analyzeImageQuality(canvas, canvas.width, canvas.height), CAMERA_MIN_SHORT_SIDE);
+      // Документ снимали боком — возвращаем кадр в нормальную ориентацию для OCR.
+      const shot = cameraSession.turned ? rotateCanvasCcw(canvas) : canvas;
+
+      const note  = describeQuality(analyzeImageQuality(shot, shot.width, shot.height), CAMERA_MIN_SHORT_SIDE);
       const label = cameraSession.page === 'main' ? 'razvorot' : 'registraciya';
-      const file  = await canvasToFile(canvas, `${cameraSession.personType}-${label}.jpg`);
+      const file  = await canvasToFile(shot, `${cameraSession.personType}-${label}.jpg`);
 
       if (!note.ok) {
         // Не блокируем жёстко: предлагаем переснять, но даём возможность отправить кадр.
@@ -887,6 +987,7 @@
     }
 
     const SOURCE_LABELS = {
+      mrz:      'MRZ (контрольные цифры)',
       llm:      'языковая модель',
       entities: 'шаблонная модель Vision',
       text:     'разбор текста',
@@ -916,6 +1017,10 @@
 
       const lines = [];
       lines.push(`Источник результата: ${data.source || '—'}`);
+      const mrz = data.mrz || {};
+      lines.push(mrz.read
+        ? `MRZ прочитана. Контрольные цифры: номер ${mrz.checks && mrz.checks.documentNumber ? 'ок' : 'не сошлась'}, дата рождения ${mrz.checks && mrz.checks.birthDate ? 'ок' : 'не сошлась'}`
+        : 'MRZ не прочитана — две строки латиницей внизу разворота не попали в кадр');
       if (llm.error) lines.push(`Ошибка модели: ${llm.error}`);
       if (llm.providerError) lines.push(`Ответ сервиса: ${llm.providerError}`);
 
@@ -932,6 +1037,7 @@
       if (data.debug) {
         lines.push('', 'Текст основного разворота (OCR):', data.debug.mainTextPreview || '(пусто)');
         lines.push('', 'Текст страницы регистрации (OCR):', data.debug.registrationPreview || '(не передана)');
+        lines.push('', 'Разбор MRZ:', JSON.stringify(data.debug.mrzRaw || null, null, 1));
         lines.push('', 'Поля шаблонной модели:', JSON.stringify(data.debug.entities || {}, null, 1));
         lines.push('', 'Ответ языковой модели:', JSON.stringify(data.debug.llmPerson || null, null, 1));
       }
