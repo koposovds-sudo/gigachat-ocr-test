@@ -568,6 +568,15 @@
      * разрешение, резкость (дисперсия лапласиана) и долю пересветов.
      */
     function analyzeImageQuality(source, width, height) {
+      try {
+        return measureImageQuality(source, width, height);
+      } catch (error) {
+        // Не хватило памяти или canvas недоступен — проверка не должна блокировать съёмку.
+        return { shortSide: Math.min(width, height), sharpness: Infinity, overexposed: 0, skipped: true };
+      }
+    }
+
+    function measureImageQuality(source, width, height) {
       const shortSide = Math.min(width, height);
       const scale     = Math.min(1, 700 / Math.max(width, height));
       const w = Math.max(2, Math.round(width  * scale));
@@ -582,10 +591,11 @@
       ctx.drawImage(source, 0, 0, w, h);
       const data = ctx.getImageData(0, 0, w, h).data;
 
-      const gray = new Float32Array(w * h);
+      // Uint8 вместо Float32 — в четыре раза меньше памяти на слабых телефонах.
+      const gray = new Uint8Array(w * h);
       let bright = 0;
       for (let i = 0, p = 0; i < data.length; i += 4, p++) {
-        const value = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        const value = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
         gray[p] = value;
         if (value > 249) bright++;
       }
@@ -618,6 +628,7 @@
       if (metrics.overexposed > QUALITY.maxOverexposed)  problems.push('пересветы или блики');
 
       if (!problems.length) {
+        if (metrics.skipped) return { ok: true, text: `Снимок готов (${metrics.shortSide} px)` };
         return { ok: true, text: `Качество снимка достаточное (${metrics.shortSide} px)` };
       }
       return { ok: false, text: `Качество низкое: ${problems.join(', ')}` };
