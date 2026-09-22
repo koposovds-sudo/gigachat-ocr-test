@@ -278,6 +278,7 @@
     <div class="cam-bar">
       <div class="cam-msg" id="cam-msg"></div>
       <button type="button" id="cam-shot" onclick="captureFromCamera()">Снять кадр</button>
+      <button type="button" class="btn-secondary" id="cam-force" onclick="acceptPendingCapture()" hidden>Использовать всё равно</button>
       <button type="button" class="btn-secondary" onclick="closeCamera()">Отмена</button>
     </div>
   </div>
@@ -458,7 +459,11 @@
     // Пороги качества: ниже них OCR почти всегда даёт мусор.
     const QUALITY = { minShortSide: 900, minSharpness: 55, maxOverexposed: 0.16 };
 
+    // У съёмки порог по разрешению ниже: кадр обрезается по рамке, и на слабых камерах пикселей меньше.
+    const CAMERA_MIN_SHORT_SIDE = 640;
+
     const cameraSession = { stream: null, personType: null, page: null };
+    let pendingCapture = null;
 
     function switchTab(personType) {
       ['seller', 'buyer'].forEach(pt => {
@@ -605,9 +610,10 @@
       return { shortSide, sharpness, overexposed: bright / (w * h) };
     }
 
-    function describeQuality(metrics) {
+    function describeQuality(metrics, minShortSide) {
+      const limit = typeof minShortSide === 'number' ? minShortSide : QUALITY.minShortSide;
       const problems = [];
-      if (metrics.shortSide < QUALITY.minShortSide)      problems.push('низкое разрешение');
+      if (metrics.shortSide < limit)                     problems.push('низкое разрешение');
       if (metrics.sharpness < QUALITY.minSharpness)      problems.push('смазанность');
       if (metrics.overexposed > QUALITY.maxOverexposed)  problems.push('пересветы или блики');
 
@@ -696,6 +702,8 @@
       const modal = document.getElementById('cam');
       const video = document.getElementById('cam-video');
 
+      pendingCapture = null;
+      document.getElementById('cam-force').hidden = true;
       modal.classList.add('show');
       setCameraMessage('Запрашиваем доступ к камере…', false);
 
@@ -727,6 +735,8 @@
       }
       document.getElementById('cam-video').srcObject = null;
       document.getElementById('cam').classList.remove('show');
+      document.getElementById('cam-force').hidden = true;
+      pendingCapture = null;
       setCameraMessage('', false);
     }
 
@@ -786,16 +796,25 @@
       }
       ctx.drawImage(video, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, rect.sw, rect.sh);
 
-      const note = describeQuality(analyzeImageQuality(canvas, canvas.width, canvas.height));
+      const note  = describeQuality(analyzeImageQuality(canvas, canvas.width, canvas.height), CAMERA_MIN_SHORT_SIDE);
+      const label = cameraSession.page === 'main' ? 'razvorot' : 'registraciya';
+      const file  = await canvasToFile(canvas, `${cameraSession.personType}-${label}.jpg`);
+
       if (!note.ok) {
+        // Не блокируем жёстко: предлагаем переснять, но даём возможность отправить кадр.
+        pendingCapture = { file, note };
+        document.getElementById('cam-force').hidden = false;
         setCameraMessage(`${note.text}. Переснимите: больше света, держите телефон ровно, дождитесь фокуса.`, true);
         return;
       }
 
-      const label = cameraSession.page === 'main' ? 'razvorot' : 'registraciya';
-      const file  = await canvasToFile(canvas, `${cameraSession.personType}-${label}.jpg`);
-
       setPassportFile(cameraSession.personType, cameraSession.page, file, note);
+      closeCamera();
+    }
+
+    function acceptPendingCapture() {
+      if (!pendingCapture) return;
+      setPassportFile(cameraSession.personType, cameraSession.page, pendingCapture.file, pendingCapture.note);
       closeCamera();
     }
 
