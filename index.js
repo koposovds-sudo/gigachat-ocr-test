@@ -9,8 +9,18 @@ const TRONK_API_KEY = process.env.TRONK_API_KEY || '';
 const YC_FOLDER_ID  = process.env.YC_FOLDER_ID  || '';
 const VISION_API_KEY = process.env.VISION_API_KEY || '';
 
+/*
+ * Языковая модель для интеллектуального разбора распознанного текста.
+ * Ключ можно задать отдельно (LLM_API_KEY) или использовать тот же, что у Vision.
+ * Сервисному аккаунту ключа нужна роль ai.languageModels.user.
+ */
+const LLM_API_KEY = process.env.LLM_API_KEY || process.env.VISION_API_KEY || '';
+const LLM_MODEL   = process.env.LLM_MODEL   || 'yandexgpt/latest';
+const LLM_ENABLED = String(process.env.LLM_ENABLED ?? 'true').toLowerCase() !== 'false';
+
 const REQUEST_TIMEOUT_MS = 15000;
 const OCR_TIMEOUT_MS     = 30000;
+const LLM_TIMEOUT_MS     = 30000;
 const MAX_BASE64_LENGTH  = 14 * 1024 * 1024;
 
 function corsHeaders() {
@@ -579,6 +589,146 @@ async function recognizePassportPageRaw(file, model = 'page') {
   };
 }
 
+/* ═══════════════════════════════════════════════════════
+ * Интеллектуальный разбор: языковая модель ищет конкретные поля
+ * в распознанном тексте и возвращает строгий JSON по схеме.
+ * ═══════════════════════════════════════════════════════ */
+
+const PASSPORT_FIELDS = [
+  'lastName', 'firstName', 'middleName', 'birthDate', 'birthPlace',
+  'passportSeries', 'passportNumber', 'issuedBy', 'departmentCode',
+  'issueDate', 'registrationAddress',
+];
+
+const PASSPORT_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    lastName:            { type: 'string', description: 'Фамилия владельца русскими буквами, без MRZ' },
+    firstName:           { type: 'string', description: 'Имя русскими буквами' },
+    middleName:          { type: 'string', description: 'Отчество русскими буквами' },
+    birthDate:           { type: 'string', description: 'Дата рождения в формате ДД.ММ.ГГГГ' },
+    birthPlace:          { type: 'string', description: 'Место рождения как в паспорте' },
+    passportSeries:      { type: 'string', description: 'Серия — ровно 4 цифры' },
+    passportNumber:      { type: 'string', description: 'Номер — ровно 6 цифр' },
+    issuedBy:            { type: 'string', description: 'Кем выдан: только название органа (ОВД/ГОВД/УФМС/МВД), без пола, гражданства и дат' },
+    departmentCode:      { type: 'string', description: 'Код подразделения в формате 000-000' },
+    issueDate:           { type: 'string', description: 'Дата выдачи в формате ДД.ММ.ГГГГ' },
+    registrationAddress: { type: 'string', description: 'Адрес регистрации одной строкой: город, улица/проспект, дом, квартира, без повторов' },
+  },
+  required: PASSPORT_FIELDS,
+};
+
+const LLM_SYSTEM_PROMPT = [
+  'Ты разбираешь результат OCR паспорта Гражданина РФ и заполняешь карточку для договора купли-продажи.',
+  'Строгие правила:',
+  '1. Бери только то, что есть в тексте. Ничего не выдумывай и не достраивай.',
+  '2. Если поле не найдено или есть сомнения — верни пустую строку.',
+  '3. Строки MRZ (латиница с символами <, например PNRUSIVANOV<<IVAN<<) игнорируй полностью.',
+  '4. ФИО — только русскими буквами, в именительном падеже, каждое слово с большой буквы.',
+  '5. Даты — в формате ДД.ММ.ГГГГ. Дата рождения раньше даты выдачи.',
+  '6. Серия — 4 цифры, номер — 6 цифр. В бланке они напечатаны вертикально справа как 10 цифр.',
+  '7. В поле issuedBy не включай подписи полей («Дата выдачи», «Код подразделения»), пол (МУЖ/ЖЕН), гражданство (RUS), даты и цифры кода.',
+  '8. Адрес регистрации бери только из блока «Страница регистрации», собери в одну строку без повторов слов.',
+  '9. Исправляй явные ошибки OCR в типовых словах (проскакт → проспект, улица, город, область, район, дом, квартира), но не меняй цифры и имена собственные.',
+  '10. Ответ — только JSON по схеме, без пояснений.',
+].join('\n');
+
+function buildLlmUserMessage(mainText, registrationText, entities) {
+  const entityLines = Object.entries(asObject(entities))
+    .map(([name, text]) => `${name}: ${text}`)
+    .join('\n');
+
+  return [
+    'Основной разворот (OCR):',
+    stripMrz(mainText).slice(0, 4000) || '(пусто)',
+    '',
+    'Поля, найденные шаблонной моделью Vision (могут быть неточными):',
+    entityLines || '(нет)',
+    '',
+    'Страница регистрации (OCR):',
+    stripMrz(registrationText).slice(0, 3000) || '(не передана)',
+  ].join('\n');
+}
+
+function parseLlmJson(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+
+  const start = raw.indexOf('{');
+  const end   = raw.lastIndexOf('}');
+  const slice = start >= 0 && end > start ? raw.slice(start, end + 1) : raw;
+
+  try {
+    const parsed = JSON.parse(slice);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/* Модель может вернуть лишние символы — приводим каждое поле к нашему формату. */
+function normalizeLlmPerson(data) {
+  const source = asObject(data);
+  const series = onlyDigits(source.passportSeries);
+  const number = onlyDigits(source.passportNumber);
+
+  const rusName = (value) => (hasCyrillic(value) ? titleCaseRus(value) : '');
+
+  return {
+    lastName:            rusName(source.lastName),
+    firstName:           rusName(source.firstName),
+    middleName:          rusName(source.middleName),
+    birthDate:           formatDateRu(source.birthDate),
+    birthPlace:          titleCaseRus(source.birthPlace || ''),
+    passportSeries:      series.length === 4 ? series : '',
+    passportNumber:      number.length === 6 ? number : '',
+    issuedBy:            cleanIssuedBy(source.issuedBy || ''),
+    departmentCode:      extractDepartmentCode(source.departmentCode || ''),
+    issueDate:           formatDateRu(source.issueDate),
+    registrationAddress: cleanAddress(source.registrationAddress || ''),
+  };
+}
+
+async function llmExtractPassport(mainText, registrationText, entities) {
+  if (!LLM_ENABLED)               return { person: null, error: 'Интеллектуальный разбор отключен (LLM_ENABLED=false).' };
+  if (!LLM_API_KEY || !YC_FOLDER_ID) return { person: null, error: 'Не настроены LLM_API_KEY/VISION_API_KEY или YC_FOLDER_ID.' };
+
+  const body = {
+    modelUri: `gpt://${YC_FOLDER_ID}/${LLM_MODEL}`,
+    completionOptions: { stream: false, temperature: 0, maxTokens: '2000' },
+    jsonSchema: { schema: PASSPORT_JSON_SCHEMA },
+    messages: [
+      { role: 'system', text: LLM_SYSTEM_PROMPT },
+      { role: 'user',   text: buildLlmUserMessage(mainText, registrationText, entities) },
+    ],
+  };
+
+  try {
+    const data = await httpPostJson(
+      'https://llm.api.cloud.yandex.net/foundationModels/v1/completion',
+      body,
+      {
+        Authorization:            `Api-Key ${LLM_API_KEY}`,
+        'x-folder-id':            YC_FOLDER_ID,
+        'x-data-logging-enabled': 'false',
+      },
+      LLM_TIMEOUT_MS
+    );
+
+    const alternatives = asObject(asObject(data).result).alternatives;
+    const text = Array.isArray(alternatives)
+      ? String(asObject(asObject(alternatives[0]).message).text || '')
+      : '';
+
+    const parsed = parseLlmJson(text);
+    if (!parsed) return { person: null, error: 'Модель вернула ответ не в формате JSON.' };
+
+    return { person: normalizeLlmPerson(parsed), error: null };
+  } catch (error) {
+    return { person: null, error: error.message || 'Ошибка вызова языковой модели.', providerError: describeProviderError(error) };
+  }
+}
+
 /* ── Сборка карточки из сущностей модели passport ── */
 
 function splitPassportNumber(value) {
@@ -604,7 +754,7 @@ function personFromEntities(entities) {
     birthPlace:          titleCaseRus(source.birth_place || ''),
     passportSeries:      seriesAndNumber.passportSeries,
     passportNumber:      seriesAndNumber.passportNumber,
-    issuedBy:            titleCaseRus(source.issued_by   || ''),
+    issuedBy:            cleanIssuedBy(source.issued_by  || ''),
     departmentCode:      extractDepartmentCode(source.subdivision || ''),
     issueDate:           formatDateRu(source.issue_date  || ''),
     registrationAddress: '',
@@ -640,6 +790,76 @@ function extractPassportSeriesAndNumber(text) {
   }
 
   return { passportSeries: '', passportNumber: '' };
+}
+
+/*
+ * Слева к названию органа часто прилипают соседние поля бланка:
+ * гражданство (RUS), пол (МУЖ/ЖЕН), подписи полей.
+ */
+/* titleCaseRus портит аббревиатуры органов — возвращаем их в верхний регистр. */
+const ORG_ABBREVIATIONS = ['ОУФМС', 'УФМС', 'ГУМВД', 'ГУВД', 'ГОВД', 'РОВД', 'МВД', 'ОВД', 'УВД', 'ФМС', 'МО', 'ТП'];
+
+function restoreAbbreviations(value) {
+  let result = String(value || '');
+  for (const abbr of ORG_ABBREVIATIONS) {
+    const pattern = new RegExp(`(^|[\\s,.(-])${abbr}(?=$|[\\s,.)-])`, 'gi');
+    result = result.replace(pattern, (m, prefix) => `${prefix}${abbr}`);
+  }
+  return result;
+}
+
+function cleanIssuedBy(value) {
+  let result = normalizeRusText(value)
+    .replace(/[<>|]/g, ' ')
+    .replace(/\b(RUS|ROS|MUZH|ZHEN)\b/gi, ' ')
+    .replace(/\b(МУЖ|ЖЕН|Муж|Жен)\.?/g, ' ')
+    .replace(/ГРАЖДАНСТВО|Гражданство|ДАТА ВЫДАЧИ|Дата выдачи|КОД ПОДРАЗДЕЛЕНИЯ|Код подразделения/g, ' ')
+    .replace(/\d{2}\.\d{2}\.\d{4}/g, ' ')
+    .replace(/\b\d{3}[- ]?\d{3}\b/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  // Если в строке есть название органа — начинаем с него или с предшествующего определения.
+  const orgMatch = result.match(
+    /([А-Яа-яёЁ-]+ским\s+)?(ОВД|ГОВД|РОВД|УВД|ГУВД|УФМС|ОУФМС|МВД|ГУМВД|Отделом|Отделением|Отдел|Отделение)[\s\S]*/i
+  );
+  if (orgMatch) result = orgMatch[0].trim();
+
+  result = restoreAbbreviations(titleCaseRus(result));
+  const labels = ['дата выдачи', 'кем выдан', 'паспорт выдан', 'код подразделения'];
+  if (labels.includes(result.toLowerCase()) || result.length < 8) return '';
+
+  return result;
+}
+
+/*
+ * OCR часто дублирует фрагменты адреса (строка целиком и каждое слово отдельно),
+ * поэтому выбрасываем фрагменты, уже входящие в более полные.
+ */
+function cleanAddress(value) {
+  const parts = normalizeRusText(value)
+    .split(/[,\n]/)
+    .map((part) => part.replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean);
+
+  const kept = [];
+  for (const part of parts) {
+    const lower = part.toLowerCase();
+    const duplicate = kept.some((other) => {
+      const otherLower = other.toLowerCase();
+      return otherLower === lower || otherLower.includes(lower);
+    });
+    if (duplicate) continue;
+
+    // Если новый фрагмент шире уже добавленного — заменяем его.
+    const narrowIndex = kept.findIndex((other) => lower.includes(other.toLowerCase()));
+    if (narrowIndex >= 0) { kept[narrowIndex] = part; continue; }
+
+    kept.push(part);
+  }
+
+  const result = titleCaseRus(kept.join(', '));
+  return result.length > 10 ? result : '';
 }
 
 function extractDepartmentCode(text) {
@@ -785,13 +1005,7 @@ function extractIssuedBy(text) {
       );
     });
 
-  const result = titleCaseRus(filtered.join(' ').replace(/\s{2,}/g, ' ').trim());
-
-  // Отбрасываем случай, когда вместо органа захватилась подпись поля.
-  const labels = ['дата выдачи', 'кем выдан', 'паспорт выдан', 'код подразделения'];
-  if (labels.includes(result.toLowerCase()) || result.length < 8) return '';
-
-  return result;
+  return cleanIssuedBy(filtered.join(' ').replace(/\s{2,}/g, ' ').trim());
 }
 
 function extractRegistrationAddress(text) {
@@ -814,7 +1028,7 @@ function extractRegistrationAddress(text) {
         .replace(/^,|,$/g, '')
         .trim();
       // Адрес без цифр (дома/квартиры) — почти всегда мусор из подписей полей.
-      if (fragment.length > 15 && /\d/.test(fragment)) return titleCaseRus(fragment);
+      if (fragment.length > 15 && /\d/.test(fragment)) return cleanAddress(fragment);
     }
   }
 
@@ -826,7 +1040,7 @@ function extractRegistrationAddress(text) {
     .slice(0, 4)
     .join(', ');
 
-  return candidate.length > 15 ? titleCaseRus(candidate) : '';
+  return candidate.length > 15 ? cleanAddress(candidate) : '';
 }
 
 function buildMissingFields(person) {
@@ -897,6 +1111,48 @@ async function recognizePassportPage(input) {
   };
 }
 
+/*
+ * Приоритет источников по полю:
+ * - цифры и даты надёжнее берутся шаблонной моделью Vision;
+ * - смысловые поля (кем выдан, место рождения, адрес) — языковой моделью;
+ * - регулярки остаются последним резервом.
+ */
+const FIELD_PRIORITY = {
+  lastName:            ['entities', 'llm', 'text'],
+  firstName:           ['entities', 'llm', 'text'],
+  middleName:          ['entities', 'llm', 'text'],
+  birthDate:           ['entities', 'llm', 'text'],
+  birthPlace:          ['entities', 'llm', 'text'],
+  passportSeries:      ['entities', 'llm', 'text'],
+  passportNumber:      ['entities', 'llm', 'text'],
+  departmentCode:      ['entities', 'llm', 'text'],
+  issueDate:           ['entities', 'llm', 'text'],
+  issuedBy:            ['llm', 'entities', 'text'],
+  registrationAddress: ['llm', 'text', 'entities'],
+};
+
+function mergePassportSources(candidates) {
+  const person      = {};
+  const fieldSource = {};
+
+  for (const field of PASSPORT_FIELDS) {
+    for (const origin of FIELD_PRIORITY[field] || ['entities', 'llm', 'text']) {
+      const value = String(asObject(candidates[origin])[field] || '').trim();
+      if (value) {
+        person[field]      = value;
+        fieldSource[field] = origin;
+        break;
+      }
+    }
+    if (!person[field]) {
+      person[field]      = '';
+      fieldSource[field] = null;
+    }
+  }
+
+  return { person, fieldSource };
+}
+
 async function extractPassport(input) {
   const personType = checkPersonType(input.personType);
   const mainPage   = validatePassportFile(input.mainPage, 'mainPage');
@@ -915,20 +1171,31 @@ async function extractPassport(input) {
     : { text: '', lines: [], entities: {} };
 
   const fromEntities = personFromEntities(mainResult.entities);
-  const fromText     = extractPassportFromTexts(mainResult.text, registrationResult.text);
+  const fromText     = extractPassportFromTexts(mainResult.text, registrationResult.text).person;
 
-  // Шаблонная модель в приоритете; регулярки — только как резерв по пустым полям.
+  // Интеллектуальный разбор: языковая модель ищет нужные поля в распознанном тексте.
+  const llmResult = await llmExtractPassport(
+    mainResult.text,
+    registrationResult.text,
+    mainResult.entities
+  );
+
+  const merged = mergePassportSources({
+    entities: fromEntities,
+    llm:      llmResult.person || {},
+    text:     fromText,
+  });
+
+  const person       = merged.person;
   const usedEntities = countFilled(fromEntities) > 0;
-
-  const person = {};
-  for (const key of Object.keys(fromText.person)) {
-    person[key] = String(fromEntities[key] || '').trim() || fromText.person[key] || '';
-  }
-  person.registrationAddress = extractRegistrationAddress(registrationResult.text);
+  const usedLlm      = Boolean(llmResult.person) && countFilled(llmResult.person) > 0;
 
   const warnings = buildWarnings(person, mainResult.text, registrationResult.text);
   if (!usedEntities) {
-    warnings.push('Шаблонная модель паспорта не вернула поля — использован резервный разбор текста. Проверьте качество фото.');
+    warnings.push('Шаблонная модель паспорта не вернула поля — использован разбор текста. Проверьте качество фото.');
+  }
+  if (!usedLlm) {
+    warnings.push(`Интеллектуальный разбор не применён: ${llmResult.error || 'модель не вернула поля'}.`);
   }
 
   return {
@@ -938,11 +1205,27 @@ async function extractPassport(input) {
     person,
     missingFields: buildMissingFields(person),
     warnings,
-    source:        usedEntities ? 'vision_passport_model' : 'text_fallback',
+    source:        usedLlm ? 'llm_assisted' : (usedEntities ? 'vision_passport_model' : 'text_fallback'),
+    fieldSource:   merged.fieldSource,
+    llm: {
+      used:          usedLlm,
+      model:         LLM_MODEL,
+      error:         llmResult.error || null,
+      providerError: llmResult.providerError || null,
+    },
     recognizedPages: {
       mainPage:         Boolean(mainResult.text) || usedEntities,
       registrationPage: Boolean(registrationResult.text),
     },
+    // Диагностика: видна только владельцу страницы, помогает понять, что прочитал OCR.
+    debug: input.debug === true ? {
+      entities:              mainResult.entities,
+      mainTextPreview:       String(mainResult.text || '').slice(0, 1500),
+      registrationPreview:   String(registrationResult.text || '').slice(0, 1000),
+      llmPerson:             llmResult.person || null,
+      entitiesPerson:        fromEntities,
+      textPerson:            fromText,
+    } : undefined,
   };
 }
 

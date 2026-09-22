@@ -83,6 +83,12 @@
     .upload-quality { font-size: 12px; font-weight: 600; }
     .upload-quality.ok { color: var(--success); }
     .upload-quality.warn { color: var(--warn); }
+
+    .ocr-diag { margin-top: 12px; border: 1px solid var(--border); border-radius: 10px; background: #f8fafc; }
+    .ocr-diag summary { cursor: pointer; padding: 10px 14px; font-size: 13px; font-weight: 600; color: var(--muted); }
+    .ocr-diag[open] summary { border-bottom: 1px solid var(--border); }
+    .ocr-diag-body { padding: 10px 14px; }
+    .ocr-diag-body pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; line-height: 1.5; color: #334155; }
     .zone-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 4px; }
     .zone-actions button { min-height: 38px; padding: 8px 14px; font-size: 13px; }
 
@@ -880,6 +886,64 @@
       }
     }
 
+    const SOURCE_LABELS = {
+      llm:      'языковая модель',
+      entities: 'шаблонная модель Vision',
+      text:     'разбор текста',
+    };
+
+    /*
+     * Диагностика нужна, чтобы видеть, какой источник дал каждое поле
+     * и что именно прочитал OCR. Данные не покидают страницу.
+     */
+    function renderDiagnostics(personType, data) {
+      const cardEl = document.getElementById(`${personType}-card`);
+      const existing = cardEl.querySelector('.ocr-diag');
+      if (existing) existing.remove();
+
+      const details = document.createElement('details');
+      details.className = 'ocr-diag';
+
+      const summary = document.createElement('summary');
+      const llm = data.llm || {};
+      summary.textContent = llm.used
+        ? `Технические детали — интеллектуальный разбор включён (${llm.model || 'модель'})`
+        : 'Технические детали — интеллектуальный разбор не сработал';
+      details.appendChild(summary);
+
+      const body = document.createElement('div');
+      body.className = 'ocr-diag-body';
+
+      const lines = [];
+      lines.push(`Источник результата: ${data.source || '—'}`);
+      if (llm.error) lines.push(`Ошибка модели: ${llm.error}`);
+      if (llm.providerError) lines.push(`Ответ сервиса: ${llm.providerError}`);
+
+      if (data.fieldSource) {
+        const perField = Object.entries(data.fieldSource)
+          .map(([field, origin]) => {
+            const label = (PASSPORT_FIELD_LABELS[field] || field);
+            return `${label}: ${origin ? (SOURCE_LABELS[origin] || origin) : 'не найдено'}`;
+          })
+          .join('\n');
+        lines.push('', 'Откуда взято каждое поле:', perField);
+      }
+
+      if (data.debug) {
+        lines.push('', 'Текст основного разворота (OCR):', data.debug.mainTextPreview || '(пусто)');
+        lines.push('', 'Текст страницы регистрации (OCR):', data.debug.registrationPreview || '(не передана)');
+        lines.push('', 'Поля шаблонной модели:', JSON.stringify(data.debug.entities || {}, null, 1));
+        lines.push('', 'Ответ языковой модели:', JSON.stringify(data.debug.llmPerson || null, null, 1));
+      }
+
+      const pre = document.createElement('pre');
+      pre.textContent = lines.join('\n');
+      body.appendChild(pre);
+      details.appendChild(body);
+
+      cardEl.insertBefore(details, cardEl.querySelector('.notice.danger'));
+    }
+
     async function runOcr(personType) {
       const state = passportState[personType];
       if (!state.main) return;
@@ -901,6 +965,7 @@
           action: 'extract_passport',
           personType,
           mainPage: { mimeType: mainMime, content: mainBase64 },
+          debug: true, // диагностика показывается только на этой странице
         };
 
         if (state.reg) {
@@ -924,6 +989,7 @@
         }
 
         renderPassportFields(personType, data.person, data.missingFields || [], data.warnings || []);
+        renderDiagnostics(personType, data);
 
         const missing = (data.missingFields || []).length;
         if (missing > 0) {
