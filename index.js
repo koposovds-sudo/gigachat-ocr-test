@@ -483,6 +483,29 @@ function formatDateRu(value) {
   return match ? `${match[1]}.${match[2]}.${match[3]}` : '';
 }
 
+/*
+ * MRZ — две латинские строки внизу разворота (PNRUSKOPOSOV<<DENIS<<...).
+ * Из неё нельзя брать ФИО для ДКП — там транслитерация, а не русские буквы.
+ */
+function isMrzLine(line) {
+  const value = String(line || '');
+  if (value.includes('<')) return true;
+  const latin    = (value.match(/[A-Z]/g) || []).length;
+  const cyrillic = (value.match(/[А-Я]/g) || []).length;
+  return latin > 6 && latin > cyrillic * 2;
+}
+
+function stripMrz(text) {
+  return normalizeRusText(text)
+    .split('\n')
+    .filter((line) => !isMrzLine(line))
+    .join('\n');
+}
+
+function hasCyrillic(value) {
+  return /[А-я]/.test(String(value || ''));
+}
+
 function extractTextLinesFromVision(data) {
   const lines = [];
 
@@ -570,10 +593,13 @@ function personFromEntities(entities) {
   const source        = asObject(entities);
   const seriesAndNumber = splitPassportNumber(source.number);
 
+  // Латиницу из MRZ в ФИО не пускаем — в ДКП нужны русские буквы.
+  const rusOnly = (value) => (hasCyrillic(value) ? titleCaseRus(value) : '');
+
   return {
-    lastName:            titleCaseRus(source.surname     || ''),
-    firstName:           titleCaseRus(source.name        || ''),
-    middleName:          titleCaseRus(source.middle_name || ''),
+    lastName:            rusOnly(source.surname),
+    firstName:           rusOnly(source.name),
+    middleName:          rusOnly(source.middle_name),
     birthDate:           formatDateRu(source.birth_date  || ''),
     birthPlace:          titleCaseRus(source.birth_place || ''),
     passportSeries:      seriesAndNumber.passportSeries,
@@ -623,8 +649,32 @@ function extractDepartmentCode(text) {
 }
 
 function extractDates(text) {
-  const upper = upperRus(text);
+  const upper = upperRus(stripMrz(text));
   return (upper.match(/\b\d{2}\.\d{2}\.\d{4}\b/g) || []).map(formatDateRu).filter(Boolean);
+}
+
+function dateToTime(value) {
+  const match = String(value || '').match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!match) return NaN;
+  return Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+}
+
+/*
+ * Даты в паспорте часто распознаются в произвольном порядке,
+ * поэтому разделяем их по смыслу: дата рождения — самая ранняя,
+ * дата выдачи — самая поздняя из не будущих.
+ */
+function splitPassportDates(text) {
+  const now   = Date.now();
+  const dates = Array.from(new Set(extractDates(text)))
+    .map((value) => ({ value, time: dateToTime(value) }))
+    .filter((item) => Number.isFinite(item.time) && item.time <= now)
+    .sort((a, b) => a.time - b.time);
+
+  if (!dates.length) return { birthDate: '', issueDate: '' };
+  if (dates.length === 1) return { birthDate: dates[0].value, issueDate: '' };
+
+  return { birthDate: dates[0].value, issueDate: dates[dates.length - 1].value };
 }
 
 function cleanNameLine(line) {
@@ -638,21 +688,45 @@ function isLikelyFullNameLine(line) {
   return parts.every((part) => /^[А-ЯA-Z-]{2,}$/.test(part));
 }
 
-function extractFullName(mainText) {
-  const blacklist = ['ПАСПОРТ', 'РОССИЙСКОЙ ФЕДЕРАЦИИ', 'ФЕДЕРАЦИИ', 'ДАТА ВЫДАЧИ', 'КОД ПОДРАЗДЕЛЕНИЯ', 'МЕСТО РОЖДЕНИЯ', 'ПОЛ', 'ПОДПИСЬ'];
-  const lines     = normalizeRusText(mainText).split('\n').map((l) => l.trim()).filter(Boolean);
+/* Служебные слова бланка — никогда не часть ФИО. */
+const NAME_STOP_WORDS = [
+  'ПАСПОРТ', 'РОССИЙСКОЙ', 'ФЕДЕРАЦИИ', 'ДАТА', 'ВЫДАЧИ', 'ВЫДАН',
+  'РОЖДЕНИЯ', 'МЕСТО', 'КОД', 'ПОДРАЗДЕЛЕНИЯ', 'ФАМИЛИЯ', 'ИМЯ',
+  'ОТЧЕСТВО', 'ПОЛ', 'ЛИЧНАЯ', 'ПОДПИСЬ', 'МВД', 'УФМС', 'ГУМВД', 'ОТДЕЛ',
+  'ОТДЕЛЕНИЕ', 'РОССИИ', 'ОРГАН', 'ГОР', 'ГОРОД', 'ОБЛ', 'РАЙОН',
+];
 
-  const candidates = lines
-    .filter((line) => {
-      const upper = upperRus(line);
-      return !blacklist.some((w) => upper.includes(w)) && isLikelyFullNameLine(upper);
-    })
+function isNameCandidateLine(line) {
+  if (/\d/.test(line)) return false;                  // в ФИО не бывает цифр
+  const upper = upperRus(line);
+  if (!hasCyrillic(upper)) return false;              // латиница — это MRZ
+  if (!isLikelyFullNameLine(upper)) return false;
+
+  const words = cleanNameLine(upper).split(' ').filter(Boolean);
+  return words.every((word) => !NAME_STOP_WORDS.includes(word));
+}
+
+function extractFullName(mainText) {
+  const lines = stripMrz(mainText)
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .filter(isNameCandidateLine)
     .map((line) => cleanNameLine(upperRus(line)));
 
-  if (!candidates.length) return { lastName: '', firstName: '', middleName: '' };
+  if (!lines.length) return { lastName: '', firstName: '', middleName: '' };
 
-  candidates.sort((a, b) => b.length - a.length);
-  const parts = candidates[0].split(' ').filter(Boolean);
+  // В паспорте ФИО идёт тремя отдельными строками по одному слову.
+  const singles = lines.filter((line) => line.split(' ').filter(Boolean).length === 1);
+  if (singles.length >= 2) {
+    return {
+      lastName:   titleCaseRus(singles[0] || ''),
+      firstName:  titleCaseRus(singles[1] || ''),
+      middleName: titleCaseRus(singles[2] || ''),
+    };
+  }
+
+  const parts = [...lines].sort((a, b) => b.length - a.length)[0].split(' ').filter(Boolean);
 
   return {
     lastName:   titleCaseRus(parts[0] || ''),
@@ -662,14 +736,14 @@ function extractFullName(mainText) {
 }
 
 function extractBirthDate(text) {
-  return extractDates(text)[0] || '';
+  return splitPassportDates(text).birthDate;
 }
 
 function extractIssueDate(text) {
   const upper     = upperRus(text);
   const lineMatch = upper.match(/ДАТА ВЫДАЧИ[:\s]*([0-9]{2}\.[0-9]{2}\.[0-9]{4})/);
   if (lineMatch) return formatDateRu(lineMatch[1]);
-  return extractDates(text)[1] || '';
+  return splitPassportDates(text).issueDate;
 }
 
 function extractBirthPlace(text) {
@@ -681,12 +755,13 @@ function extractBirthPlace(text) {
     .slice(0, 2)
     .join(' ')
     .replace(/ДАТА ВЫДАЧИ.*$/i, '')
+    .replace(/\d{4}.*$/, '')          // отрезаем серию/номер, если они попали в строку
     .trim();
   return titleCaseRus(fragment);
 }
 
 function extractIssuedBy(text) {
-  const normalized = normalizeRusText(text);
+  const normalized = stripMrz(text);
   const upper      = upperRus(normalized);
   const idx        = upper.indexOf('КОД ПОДРАЗДЕЛЕНИЯ');
 
@@ -708,11 +783,18 @@ function extractIssuedBy(text) {
       );
     });
 
-  return titleCaseRus(filtered.join(' ').replace(/\s{2,}/g, ' ').trim());
+  const result = titleCaseRus(filtered.join(' ').replace(/\s{2,}/g, ' ').trim());
+
+  // Отбрасываем случай, когда вместо органа захватилась подпись поля.
+  const labels = ['дата выдачи', 'кем выдан', 'паспорт выдан', 'код подразделения'];
+  if (labels.includes(result.toLowerCase()) || result.length < 8) return '';
+
+  return result;
 }
 
 function extractRegistrationAddress(text) {
-  const normalized = normalizeRusText(text);
+  const normalized = stripMrz(text);
+  if (normalized.length < 15) return '';
   const upper      = upperRus(normalized);
   const anchors    = ['МЕСТО ЖИТЕЛЬСТВА', 'МЕСТО ПРЕБЫВАНИЯ', 'АДРЕС', 'ЗАРЕГИСТРИРОВАН', 'ЗАРЕГИСТРИРОВАНА'];
 
@@ -729,18 +811,20 @@ function extractRegistrationAddress(text) {
         .replace(/,+/g, ',')
         .replace(/^,|,$/g, '')
         .trim();
-      if (fragment) return titleCaseRus(fragment);
+      // Адрес без цифр (дома/квартиры) — почти всегда мусор из подписей полей.
+      if (fragment.length > 15 && /\d/.test(fragment)) return titleCaseRus(fragment);
     }
   }
 
-  return titleCaseRus(
-    normalized
-      .split('\n')
-      .map((l) => normalizeSpaces(l))
-      .filter((l) => l.length > 5)
-      .slice(0, 4)
-      .join(', ')
-  );
+  // Без явного анкора лучше оставить поле пустым, чем вставить случайный текст.
+  const candidate = normalized
+    .split('\n')
+    .map((l) => normalizeSpaces(l))
+    .filter((l) => l.length > 10 && /[А-я]/.test(l) && /\d/.test(l))
+    .slice(0, 4)
+    .join(', ');
+
+  return candidate.length > 15 ? titleCaseRus(candidate) : '';
 }
 
 function buildMissingFields(person) {
