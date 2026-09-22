@@ -383,6 +383,15 @@ async function lookupVehicleFull(plateInput) {
 /* ═══════════════════════════════════════════════════════
  * OCR паспортов — Yandex Vision OCR v1
  * Переменные окружения: VISION_API_KEY, YC_FOLDER_ID
+ *
+ * Формат запроса к /ocr/v1/recognizeText:
+ * {
+ *   "mimeType": "image/jpeg",
+ *   "content": "<base64>",
+ *   "textDetectionConfig": {
+ *     "languageCodes": ["ru", "en"]
+ *   }
+ * }
  * ═══════════════════════════════════════════════════════ */
 
 function ensureVisionConfig() {
@@ -475,15 +484,25 @@ function extractTextLinesFromVision(data) {
   return Array.from(new Set(lines));
 }
 
+/*
+ * Исправлено: languageCodes перемещён в textDetectionConfig,
+ * лишнее поле model убрано — именно они вызывали HTTP 400 от Vision API.
+ */
 async function recognizePassportPageRaw(file) {
   ensureVisionConfig();
 
   const data = await httpPostJson(
     'https://ocr.api.cloud.yandex.net/ocr/v1/recognizeText',
-    { mimeType: file.mimeType, languageCodes: ['ru', 'en'], model: 'page', content: file.content },
     {
-      Authorization:          `Api-Key ${VISION_API_KEY}`,
-      'x-folder-id':          YC_FOLDER_ID,
+      mimeType: file.mimeType,
+      content:  file.content,
+      textDetectionConfig: {
+        languageCodes: ['ru', 'en'],
+      },
+    },
+    {
+      Authorization:            `Api-Key ${VISION_API_KEY}`,
+      'x-folder-id':            YC_FOLDER_ID,
       'x-data-logging-enabled': 'false',
     },
     OCR_TIMEOUT_MS
@@ -655,12 +674,12 @@ function buildMissingFields(person) {
 
 function buildWarnings(person, mainText, registrationText) {
   const warnings = [];
-  if (!registrationText)                              warnings.push('Не передана страница регистрации.');
+  if (!registrationText)                                warnings.push('Не передана страница регистрации.');
   if (!person.passportSeries || !person.passportNumber) warnings.push('Серия или номер паспорта распознаны неуверенно.');
-  if (!person.departmentCode)                         warnings.push('Код подразделения не распознан.');
-  if (!person.registrationAddress)                    warnings.push('Адрес регистрации не распознан.');
-  if (!person.lastName || !person.firstName)          warnings.push('ФИО распознано не полностью.');
-  if (!mainText || mainText.length < 30)              warnings.push('Основной разворот распознан с низким количеством текста.');
+  if (!person.departmentCode)                           warnings.push('Код подразделения не распознан.');
+  if (!person.registrationAddress)                      warnings.push('Адрес регистрации не распознан.');
+  if (!person.lastName || !person.firstName)            warnings.push('ФИО распознано не полностью.');
+  if (!mainText || mainText.length < 30)                warnings.push('Основной разворот распознан с низким количеством текста.');
   return warnings;
 }
 
@@ -724,12 +743,12 @@ async function extractPassport(input) {
   const extracted = extractPassportFromTexts(mainResult.text, registrationResult.text);
 
   return {
-    ok:           true,
-    mode:         'passport_extract',
+    ok:            true,
+    mode:          'passport_extract',
     personType,
-    person:       extracted.person,
+    person:        extracted.person,
     missingFields: extracted.missingFields,
-    warnings:     extracted.warnings,
+    warnings:      extracted.warnings,
     recognizedPages: {
       mainPage:         Boolean(mainResult.text),
       registrationPage: Boolean(registrationResult.text),
