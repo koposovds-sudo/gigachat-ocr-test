@@ -3,60 +3,107 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Поиск автомобиля по госномеру и заполнение карточки для договора купли-продажи">
-  <title>Карточка автомобиля для ДКП</title>
+  <meta name="description" content="Поиск автомобиля по госномеру и заполнение карточек для договора купли-продажи">
+  <title>Карточка ДКП — Автомобиль и стороны договора</title>
   <style>
-    :root { --card:#fff; --text:#182235; --muted:#68758a; --line:#dfe6f0; --brand:#1769e0; --brand-dark:#0f56bd; --success:#0b7a45; --warn:#9a5c00; --danger:#b42318; --shadow:0 14px 38px rgba(19,43,80,.10); }
-    * { box-sizing:border-box; }
-    body { margin:0; color:var(--text); font:16px/1.5 Inter,Segoe UI,Roboto,Arial,sans-serif; background:linear-gradient(180deg,#eaf2ff 0,#f4f7fb 290px); }
-    .container { width:min(1080px,calc(100% - 32px)); margin:0 auto; padding:42px 0 56px; }
-    .hero { margin-bottom:24px; }
-    h1 { margin:0 0 10px; font-size:clamp(28px,5vw,43px); line-height:1.12; letter-spacing:-.035em; }
-    h2 { margin:0; font-size:21px; }
-    .lead { max-width:730px; margin:0; color:var(--muted); font-size:17px; }
-    .card { margin-top:20px; padding:24px; border:1px solid var(--line); border-radius:18px; background:var(--card); box-shadow:var(--shadow); }
-    .search-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:end; }
-    label { display:block; margin-bottom:7px; font-weight:650; font-size:14px; }
-    input { width:100%; padding:13px 14px; border:1px solid #bdc9db; border-radius:10px; color:var(--text); font:inherit; background:#fff; outline:none; }
-    input:focus { border-color:var(--brand); box-shadow:0 0 0 3px rgba(23,105,224,.16); }
-    .plate-input { text-transform:uppercase; letter-spacing:.08em; font-size:19px; font-weight:700; }
-    button { min-height:48px; padding:12px 18px; border:0; border-radius:10px; cursor:pointer; color:#fff; font:inherit; font-weight:700; background:var(--brand); transition:background .15s,transform .15s; }
-    button:hover:not(:disabled) { background:var(--brand-dark); }
-    button:active:not(:disabled) { transform:translateY(1px); }
-    button:disabled { cursor:wait; opacity:.64; }
-    .hint { margin:10px 0 0; color:var(--muted); font-size:13px; }
-    .status { display:none; margin-top:16px; padding:12px 14px; border-radius:10px; font-size:14px; }
-    .status.show { display:block; }
-    .status.loading { color:#164e9b; background:#edf5ff; }
-    .status.error { color:var(--danger); background:#fff1f0; }
-    .status.success { color:var(--success); background:#ebf9f0; }
-    .vehicle { display:none; }
-    .vehicle.show { display:block; }
-    .vehicle-top { display:grid; grid-template-columns:180px minmax(0,1fr); gap:22px; align-items:start; margin:20px 0 24px; }
-    .photo { width:180px; height:135px; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:#f0f3f8; }
-    .photo img { width:100%; height:100%; object-fit:cover; }
-    .photo.empty::after { content:'Фото не найдено'; display:grid; width:100%; height:100%; place-items:center; color:var(--muted); font-size:13px; }
-    .vehicle-name { margin:2px 0 4px; font-size:28px; line-height:1.2; letter-spacing:-.02em; }
-    .vin { margin:0; color:var(--muted); overflow-wrap:anywhere; }
-    .registry { margin:0 0 20px; padding:12px 14px; border-radius:10px; font-size:14px; }
-    .registry.warn { color:var(--warn); background:#fff8e7; }
-    .registry.ok { color:var(--success); background:#ebf9f0; }
-    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
-    .field small { display:block; margin-top:5px; color:var(--muted); font-size:12px; }
-    .notice { margin:20px 0 0; padding:14px 16px; border-left:4px solid #e5a700; border-radius:8px; color:#5e4a00; background:#fff9df; font-size:14px; }
-    .footer { margin-top:22px; color:var(--muted); font-size:13px; }
-    @media (max-width:640px) { .container { width:min(100% - 24px,1080px); padding-top:28px; } .card { padding:18px; } .search-row,.vehicle-top,.grid { grid-template-columns:1fr; } .photo { width:100%; height:210px; } button { width:100%; } }
+    :root {
+      --card: #fff;
+      --text: #182235;
+      --muted: #68758a;
+      --line: #dfe6f0;
+      --brand: #1769e0;
+      --brand-dark: #0f56bd;
+      --success: #0b7a45;
+      --warn: #9a5c00;
+      --danger: #b42318;
+      --shadow: 0 14px 38px rgba(19,43,80,.10);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--text); font: 16px/1.5 Inter, Segoe UI, Roboto, Arial, sans-serif; background: linear-gradient(180deg,#eaf2ff 0,#f4f7fb 290px); }
+    .container { width: min(1080px, calc(100% - 32px)); margin: 0 auto; padding: 42px 0 56px; }
+    .hero { margin-bottom: 24px; }
+    h1 { margin: 0 0 10px; font-size: clamp(28px,5vw,43px); line-height: 1.12; letter-spacing: -.035em; }
+    h2 { margin: 0; font-size: 21px; }
+    h3 { margin: 0 0 16px; font-size: 17px; color: var(--muted); font-weight: 600; }
+    .lead { max-width: 730px; margin: 0; color: var(--muted); font-size: 17px; }
+    .card { margin-top: 20px; padding: 24px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); box-shadow: var(--shadow); }
+    .search-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: end; }
+    label { display: block; margin-bottom: 7px; font-weight: 650; font-size: 14px; }
+    input, textarea { width: 100%; padding: 13px 14px; border: 1px solid #bdc9db; border-radius: 10px; color: var(--text); font: inherit; background: #fff; outline: none; }
+    input:focus, textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(23,105,224,.16); }
+    input.field-missing { border-color: #e5a700; background: #fffbee; }
+    .plate-input { text-transform: uppercase; letter-spacing: .08em; font-size: 19px; font-weight: 700; }
+    button { min-height: 48px; padding: 12px 18px; border: 0; border-radius: 10px; cursor: pointer; color: #fff; font: inherit; font-weight: 700; background: var(--brand); transition: background .15s, transform .15s; }
+    button:hover:not(:disabled) { background: var(--brand-dark); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { cursor: wait; opacity: .64; }
+    button.btn-secondary { background: #f0f4fb; color: var(--brand); border: 1px solid #c4d5f5; }
+    button.btn-secondary:hover:not(:disabled) { background: #dde8fc; }
+    .hint { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+    .status { display: none; margin-top: 16px; padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+    .status.show { display: block; }
+    .status.loading { color: #164e9b; background: #edf5ff; }
+    .status.error { color: var(--danger); background: #fff1f0; }
+    .status.success { color: var(--success); background: #ebf9f0; }
+    .vehicle { display: none; }
+    .vehicle.show { display: block; }
+    .vehicle-top { display: grid; grid-template-columns: 180px minmax(0,1fr); gap: 22px; align-items: start; margin: 20px 0 24px; }
+    .photo { width: 180px; height: 135px; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: #f0f3f8; }
+    .photo img { width: 100%; height: 100%; object-fit: cover; }
+    .photo.empty::after { content: 'Фото не найдено'; display: grid; width: 100%; height: 100%; place-items: center; color: var(--muted); font-size: 13px; }
+    .vehicle-name { margin: 2px 0 4px; font-size: 28px; line-height: 1.2; letter-spacing: -.02em; }
+    .vin { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+    .registry { margin: 0 0 20px; padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+    .registry.warn { color: var(--warn); background: #fff8e7; }
+    .registry.ok { color: var(--success); background: #ebf9f0; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
+    .field small { display: block; margin-top: 5px; color: var(--muted); font-size: 12px; }
+    .notice { margin: 20px 0 0; padding: 14px 16px; border-left: 4px solid #e5a700; border-radius: 8px; color: #5e4a00; background: #fff9df; font-size: 14px; }
+    .notice.danger { border-left-color: var(--danger); color: #6b0e0e; background: #fff4f3; }
+    .footer { margin-top: 22px; color: var(--muted); font-size: 13px; }
+    .section-divider { margin: 24px 0; border: 0; border-top: 1px solid var(--line); }
+
+    /* Паспорт */
+    .passport-section { display: none; }
+    .passport-section.show { display: block; }
+    .passport-tabs { display: flex; gap: 8px; margin-bottom: 20px; }
+    .passport-tab { padding: 8px 20px; border-radius: 8px; background: #f0f4fb; color: var(--brand); border: 1px solid #c4d5f5; font-weight: 600; font-size: 14px; cursor: pointer; transition: background .15s; }
+    .passport-tab.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+    .passport-panel { display: none; }
+    .passport-panel.active { display: block; }
+    .upload-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 28px 20px; border: 2px dashed #bdc9db; border-radius: 12px; background: #f7faff; cursor: pointer; text-align: center; transition: border-color .15s, background .15s; }
+    .upload-zone:hover { border-color: var(--brand); background: #edf5ff; }
+    .upload-zone.has-file { border-color: var(--brand); background: #edf5ff; }
+    .upload-zone input[type="file"] { display: none; }
+    .upload-icon { font-size: 28px; line-height: 1; }
+    .upload-label { font-weight: 600; font-size: 14px; color: var(--brand); }
+    .upload-sub { font-size: 12px; color: var(--muted); }
+    .upload-filename { font-size: 13px; color: var(--success); font-weight: 600; word-break: break-all; }
+    .ocr-row { display: flex; gap: 12px; align-items: center; margin-top: 14px; }
+    .missing-badge { display: inline-block; padding: 2px 8px; border-radius: 5px; background: #fff3cd; color: #7a4f00; font-size: 12px; font-weight: 600; margin-left: 6px; }
+
+    @media (max-width: 640px) {
+      .container { width: min(100% - 24px, 1080px); padding-top: 28px; }
+      .card { padding: 18px; }
+      .search-row, .vehicle-top, .grid, .grid-3 { grid-template-columns: 1fr; }
+      .photo { width: 100%; height: 210px; }
+      button { width: 100%; }
+      .ocr-row { flex-direction: column; }
+      .passport-tabs { flex-direction: column; }
+    }
   </style>
 </head>
 <body>
   <main class="container">
     <header class="hero">
-      <h1>Карточка автомобиля для ДКП</h1>
-      <p class="lead">Введите госномер, чтобы получить доступные сведения об автомобиле и перенести их в редактируемую карточку договора купли-продажи.</p>
+      <h1>Карточка ДКП</h1>
+      <p class="lead">Поиск автомобиля по госномеру и распознавание паспортов сторон договора купли-продажи.</p>
     </header>
 
+    <!-- ===== БЛОК 1: АВТОМОБИЛЬ ===== -->
     <section class="card" aria-labelledby="lookup-title">
-      <h2 id="lookup-title">Поиск по госномеру</h2>
+      <h2 id="lookup-title">Автомобиль</h2>
       <form id="lookup-form" novalidate>
         <div class="search-row">
           <div>
@@ -98,7 +145,90 @@
           <div class="field"><label for="registration-date">Дата регистрации</label><input id="registration-date" name="registrationDate"></div>
         </div>
       </form>
-      <aside class="notice">Данные из внешнего источника носят справочный характер. Перед подписанием договора купли-продажи обязательно сверьте все реквизиты с оригиналами СТС, ПТС или ЭПТС.</aside>
+      <aside class="notice">Данные из внешнего источника носят справочный характер. Перед подписанием договора обязательно сверьте все реквизиты с оригиналами СТС, ПТС или ЭПТС.</aside>
+    </section>
+
+    <!-- ===== БЛОК 2: ПАСПОРТА СТОРОН ===== -->
+    <section class="card" aria-labelledby="passport-title">
+      <h2 id="passport-title">Стороны договора</h2>
+      <p style="margin:8px 0 20px; color:var(--muted); font-size:14px;">Загрузите фото или скан основного разворота паспорта и страницы регистрации. Данные будут распознаны и заполнены в карточку для проверки.</p>
+
+      <div class="passport-tabs" role="tablist" aria-label="Стороны договора">
+        <button class="passport-tab active" role="tab" aria-selected="true" aria-controls="panel-seller" id="tab-seller" onclick="switchTab('seller')">Продавец</button>
+        <button class="passport-tab" role="tab" aria-selected="false" aria-controls="panel-buyer" id="tab-buyer" onclick="switchTab('buyer')">Покупатель</button>
+      </div>
+
+      <!-- Продавец -->
+      <div id="panel-seller" class="passport-panel active" role="tabpanel" aria-labelledby="tab-seller">
+        <h3>Паспорт продавца</h3>
+        <div class="grid">
+          <div>
+            <label>Основной разворот (фото страниц 2–3)</label>
+            <div class="upload-zone" id="seller-main-zone" onclick="triggerUpload('seller-main-file')">
+              <span class="upload-icon">📄</span>
+              <span class="upload-label">Выбрать файл</span>
+              <span class="upload-sub">JPG, PNG, WEBP или PDF · до 10 МБ</span>
+              <span id="seller-main-name" class="upload-filename" hidden></span>
+              <input type="file" id="seller-main-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('seller','main',this)">
+            </div>
+          </div>
+          <div>
+            <label>Страница регистрации (фото страницы 5 или штампа)</label>
+            <div class="upload-zone" id="seller-reg-zone" onclick="triggerUpload('seller-reg-file')">
+              <span class="upload-icon">🏠</span>
+              <span class="upload-label">Выбрать файл</span>
+              <span class="upload-sub">JPG, PNG, WEBP или PDF · до 10 МБ</span>
+              <span id="seller-reg-name" class="upload-filename" hidden></span>
+              <input type="file" id="seller-reg-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('seller','reg',this)">
+            </div>
+          </div>
+        </div>
+        <div class="ocr-row">
+          <button type="button" id="seller-ocr-btn" onclick="runOcr('seller')" disabled>Распознать паспорт продавца</button>
+          <div id="seller-ocr-status" class="status" role="status" aria-live="polite" style="margin-top:0; flex:1;"></div>
+        </div>
+        <div id="seller-card" class="passport-section" style="margin-top:20px;">
+          <hr class="section-divider">
+          <div class="grid-3" id="seller-fields"></div>
+          <aside class="notice danger" style="margin-top:16px;">Распознанные данные могут содержать ошибки. Обязательно проверьте все поля по оригиналу паспорта перед подписанием договора. Файл паспорта не сохраняется на сервере.</aside>
+        </div>
+      </div>
+
+      <!-- Покупатель -->
+      <div id="panel-buyer" class="passport-panel" role="tabpanel" aria-labelledby="tab-buyer">
+        <h3>Паспорт покупателя</h3>
+        <div class="grid">
+          <div>
+            <label>Основной разворот (фото страниц 2–3)</label>
+            <div class="upload-zone" id="buyer-main-zone" onclick="triggerUpload('buyer-main-file')">
+              <span class="upload-icon">📄</span>
+              <span class="upload-label">Выбрать файл</span>
+              <span class="upload-sub">JPG, PNG, WEBP или PDF · до 10 МБ</span>
+              <span id="buyer-main-name" class="upload-filename" hidden></span>
+              <input type="file" id="buyer-main-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('buyer','main',this)">
+            </div>
+          </div>
+          <div>
+            <label>Страница регистрации (фото страницы 5 или штампа)</label>
+            <div class="upload-zone" id="buyer-reg-zone" onclick="triggerUpload('buyer-reg-file')">
+              <span class="upload-icon">🏠</span>
+              <span class="upload-label">Выбрать файл</span>
+              <span class="upload-sub">JPG, PNG, WEBP или PDF · до 10 МБ</span>
+              <span id="buyer-reg-name" class="upload-filename" hidden></span>
+              <input type="file" id="buyer-reg-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('buyer','reg',this)">
+            </div>
+          </div>
+        </div>
+        <div class="ocr-row">
+          <button type="button" id="buyer-ocr-btn" onclick="runOcr('buyer')" disabled>Распознать паспорт покупателя</button>
+          <div id="buyer-ocr-status" class="status" role="status" aria-live="polite" style="margin-top:0; flex:1;"></div>
+        </div>
+        <div id="buyer-card" class="passport-section" style="margin-top:20px;">
+          <hr class="section-divider">
+          <div class="grid-3" id="buyer-fields"></div>
+          <aside class="notice danger" style="margin-top:16px;">Распознанные данные могут содержать ошибки. Обязательно проверьте все поля по оригиналу паспорта перед подписанием договора. Файл паспорта не сохраняется на сервере.</aside>
+        </div>
+      </div>
     </section>
 
     <p class="footer">Сервис не хранит данные в браузере после закрытия страницы. API-ключи внешних сервисов на странице не используются.</p>
@@ -108,6 +238,9 @@
     'use strict';
 
     const FUNCTION_URL = 'https://functions.yandexcloud.net/d4e6gg7qd3tlqotvn86c';
+
+    /* ─── Автомобиль ─── */
+
     const form = document.getElementById('lookup-form');
     const plateInput = document.getElementById('plate');
     const searchButton = document.getElementById('search-button');
@@ -117,7 +250,7 @@
     const photo = document.getElementById('photo');
     const registryStatus = document.getElementById('registry-status');
 
-    const fields = {
+    const vehicleFields = {
       plate: document.getElementById('dkp-plate'),
       vin: document.getElementById('vin'),
       brand: document.getElementById('brand'),
@@ -131,7 +264,7 @@
       sts: document.getElementById('sts'),
       category: document.getElementById('category'),
       recordStatus: document.getElementById('record-status'),
-      registrationDate: document.getElementById('registration-date')
+      registrationDate: document.getElementById('registration-date'),
     };
 
     function normalizePlate(value) {
@@ -141,34 +274,34 @@
         .replace(/[^АВЕКМНОРСТУХABEKMHOPCTYX0-9]/g, '');
     }
 
-    function showStatus(message, type) {
-      statusBox.textContent = message;
-      statusBox.className = `status show ${type}`;
+    function showStatus(el, message, type) {
+      el.textContent = message;
+      el.className = `status show ${type}`;
     }
 
     function setValue(field, value) {
-      field.value = value === null || value === undefined ? '' : String(value);
+      field.value = (value === null || value === undefined) ? '' : String(value);
     }
 
-    function fillCard(data) {
+    function fillVehicleCard(data) {
       const vehicle = data.vehicle || {};
       const brandModel = [vehicle.brand, vehicle.model].filter(Boolean).join(' ');
       const title = [brandModel, vehicle.year].filter(Boolean).join(' · ');
 
-      setValue(fields.plate, data.plate);
-      setValue(fields.vin, vehicle.vin);
-      setValue(fields.brand, vehicle.brand);
-      setValue(fields.model, vehicle.model);
-      setValue(fields.year, vehicle.year);
-      setValue(fields.color, vehicle.color);
-      setValue(fields.engineVolume, vehicle.engineVolume);
-      setValue(fields.powerHp, vehicle.powerHp);
-      setValue(fields.bodyNumber, vehicle.bodyNumber);
-      setValue(fields.chassisNumber, vehicle.chassisNumber);
-      setValue(fields.sts, vehicle.sts);
-      setValue(fields.category, vehicle.category);
-      setValue(fields.recordStatus, vehicle.recordStatus);
-      setValue(fields.registrationDate, vehicle.registrationDate);
+      setValue(vehicleFields.plate, data.plate);
+      setValue(vehicleFields.vin, vehicle.vin);
+      setValue(vehicleFields.brand, vehicle.brand);
+      setValue(vehicleFields.model, vehicle.model);
+      setValue(vehicleFields.year, vehicle.year);
+      setValue(vehicleFields.color, vehicle.color);
+      setValue(vehicleFields.engineVolume, vehicle.engineVolume);
+      setValue(vehicleFields.powerHp, vehicle.powerHp);
+      setValue(vehicleFields.bodyNumber, vehicle.bodyNumber);
+      setValue(vehicleFields.chassisNumber, vehicle.chassisNumber);
+      setValue(vehicleFields.sts, vehicle.sts);
+      setValue(vehicleFields.category, vehicle.category);
+      setValue(vehicleFields.recordStatus, vehicle.recordStatus);
+      setValue(vehicleFields.registrationDate, vehicle.registrationDate);
 
       document.getElementById('vehicle-name').textContent = title || 'Автомобиль';
       document.getElementById('vehicle-vin').textContent = vehicle.vin ? `VIN: ${vehicle.vin}` : 'VIN: не указан';
@@ -206,45 +339,222 @@
       const plate = normalizePlate(plateInput.value);
 
       if (!plate) {
-        showStatus('Введите государственный регистрационный номер.', 'error');
+        showStatus(statusBox, 'Введите государственный регистрационный номер.', 'error');
         plateInput.focus();
         return;
       }
 
       searchButton.disabled = true;
       searchButton.textContent = 'Идёт поиск…';
-      showStatus('Получаем сведения об автомобиле. Это может занять до 30 секунд.', 'loading');
+      showStatus(statusBox, 'Получаем сведения об автомобиле. Это может занять до 30 секунд.', 'loading');
 
       try {
         const response = await fetch(FUNCTION_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'lookup_vehicle_full', plate })
+          body: JSON.stringify({ action: 'lookup_vehicle_full', plate }),
         });
 
         let data;
-        try {
-          data = await response.json();
-        } catch {
-          throw new Error('Функция вернула некорректный ответ.');
-        }
+        try { data = await response.json(); }
+        catch { throw new Error('Функция вернула некорректный ответ.'); }
 
         if (!response.ok || !data.ok) {
           throw new Error(data.error || `Ошибка запроса: HTTP ${response.status}`);
         }
 
-        fillCard(data);
-        showStatus('Карточка автомобиля заполнена. Проверьте данные по оригиналам документов.', 'success');
+        fillVehicleCard(data);
+        showStatus(statusBox, 'Карточка автомобиля заполнена. Проверьте данные по оригиналам документов.', 'success');
       } catch (error) {
         const message = error instanceof TypeError
           ? 'Не удалось обратиться к функции. Проверьте подключение, публичный доступ функции и настройку CORS.'
           : (error.message || 'Не удалось выполнить поиск.');
-        showStatus(message, 'error');
+        showStatus(statusBox, message, 'error');
       } finally {
         searchButton.disabled = false;
         searchButton.textContent = 'Найти автомобиль';
       }
     });
+
+    /* ─── Паспорта ─── */
+
+    const PASSPORT_FIELD_LABELS = {
+      lastName:            'Фамилия',
+      firstName:           'Имя',
+      middleName:          'Отчество',
+      birthDate:           'Дата рождения',
+      birthPlace:          'Место рождения',
+      passportSeries:      'Серия паспорта',
+      passportNumber:      'Номер паспорта',
+      issuedBy:            'Кем выдан',
+      departmentCode:      'Код подразделения',
+      issueDate:           'Дата выдачи',
+      registrationAddress: 'Адрес регистрации',
+    };
+
+    const passportState = {
+      seller: { main: null, reg: null },
+      buyer:  { main: null, reg: null },
+    };
+
+    function switchTab(personType) {
+      ['seller', 'buyer'].forEach(pt => {
+        document.getElementById(`tab-${pt}`).classList.toggle('active', pt === personType);
+        document.getElementById(`tab-${pt}`).setAttribute('aria-selected', String(pt === personType));
+        document.getElementById(`panel-${pt}`).classList.toggle('active', pt === personType);
+      });
+    }
+
+    function triggerUpload(inputId) {
+      document.getElementById(inputId).click();
+    }
+
+    function updateOcrButton(personType) {
+      const hasMain = Boolean(passportState[personType].main);
+      document.getElementById(`${personType}-ocr-btn`).disabled = !hasMain;
+    }
+
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result;
+          const base64 = result.includes(',') ? result.split(',')[1] : result;
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function handleFileSelect(personType, page, input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+
+      if (file.size > 10 * 1024 * 1024) {
+        alert('Файл слишком большой. Максимальный размер — 10 МБ.');
+        input.value = '';
+        return;
+      }
+
+      const nameEl = document.getElementById(`${personType}-${page === 'main' ? 'main' : 'reg'}-name`);
+      const zoneEl = document.getElementById(`${personType}-${page === 'main' ? 'main' : 'reg'}-zone`);
+
+      nameEl.textContent = file.name;
+      nameEl.hidden = false;
+      zoneEl.classList.add('has-file');
+
+      passportState[personType][page] = file;
+      updateOcrButton(personType);
+
+      const ocrStatusEl = document.getElementById(`${personType}-ocr-status`);
+      ocrStatusEl.className = 'status';
+    }
+
+    function renderPassportFields(personType, person, missingFields, warnings) {
+      const container = document.getElementById(`${personType}-fields`);
+      container.innerHTML = '';
+
+      for (const [key, label] of Object.entries(PASSPORT_FIELD_LABELS)) {
+        const isMissing = missingFields.includes(key);
+        const value = (person && person[key]) ? String(person[key]) : '';
+
+        const wide = key === 'issuedBy' || key === 'birthPlace' || key === 'registrationAddress';
+
+        const wrapper = document.createElement('div');
+        wrapper.className = `field${wide ? ' grid-3-span' : ''}`;
+        if (wide) wrapper.style.gridColumn = '1 / -1';
+
+        const lbl = document.createElement('label');
+        lbl.setAttribute('for', `${personType}-${key}`);
+        lbl.innerHTML = label + (isMissing ? '<span class="missing-badge">Не распознано</span>' : '');
+
+        const inputEl = document.createElement('input');
+        inputEl.id = `${personType}-${key}`;
+        inputEl.name = key;
+        inputEl.value = value;
+        if (isMissing) inputEl.classList.add('field-missing');
+
+        wrapper.appendChild(lbl);
+        wrapper.appendChild(inputEl);
+        container.appendChild(wrapper);
+      }
+
+      const cardEl = document.getElementById(`${personType}-card`);
+      cardEl.classList.add('show');
+
+      if (warnings && warnings.length) {
+        const existingWarn = cardEl.querySelector('.ocr-warnings');
+        if (existingWarn) existingWarn.remove();
+        const warnEl = document.createElement('aside');
+        warnEl.className = 'notice ocr-warnings';
+        warnEl.style.marginTop = '12px';
+        warnEl.textContent = 'Предупреждения: ' + warnings.join(' · ');
+        cardEl.insertBefore(warnEl, cardEl.querySelector('.notice.danger'));
+      }
+    }
+
+    async function runOcr(personType) {
+      const state = passportState[personType];
+      if (!state.main) return;
+
+      const btn = document.getElementById(`${personType}-ocr-btn`);
+      const statusEl = document.getElementById(`${personType}-ocr-status`);
+      const label = personType === 'seller' ? 'продавца' : 'покупателя';
+
+      btn.disabled = true;
+      btn.textContent = 'Распознаём…';
+      showStatus(statusEl, `Отправляем паспорт ${label} на распознавание. Это может занять до 30 секунд.`, 'loading');
+
+      try {
+        const mainBase64 = await fileToBase64(state.main);
+        const mainMime = state.main.type || 'image/jpeg';
+
+        const requestBody = {
+          action: 'extract_passport',
+          personType,
+          mainPage: { mimeType: mainMime, content: mainBase64 },
+        };
+
+        if (state.reg) {
+          const regBase64 = await fileToBase64(state.reg);
+          const regMime = state.reg.type || 'image/jpeg';
+          requestBody.registrationPage = { mimeType: regMime, content: regBase64 };
+        }
+
+        const response = await fetch(FUNCTION_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        });
+
+        let data;
+        try { data = await response.json(); }
+        catch { throw new Error('Функция вернула некорректный ответ.'); }
+
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || `Ошибка запроса: HTTP ${response.status}`);
+        }
+
+        renderPassportFields(personType, data.person, data.missingFields || [], data.warnings || []);
+
+        const missing = (data.missingFields || []).length;
+        if (missing > 0) {
+          showStatus(statusEl, `Карточка заполнена, но ${missing} ${missing === 1 ? 'поле не распознано' : 'поля не распознаны'}. Заполните их вручную.`, 'success');
+        } else {
+          showStatus(statusEl, `Паспорт ${label} успешно распознан. Проверьте данные по оригиналу.`, 'success');
+        }
+      } catch (error) {
+        const message = error instanceof TypeError
+          ? 'Не удалось обратиться к функции. Проверьте подключение и настройку CORS.'
+          : (error.message || 'Не удалось распознать паспорт.');
+        showStatus(statusEl, message, 'error');
+      } finally {
+        btn.disabled = false;
+        const btnLabel = personType === 'seller' ? 'Распознать паспорт продавца' : 'Распознать паспорт покупателя';
+        btn.textContent = btnLabel;
+      }
+    }
   </script>
 </body>
 </html>
