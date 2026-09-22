@@ -94,6 +94,20 @@ function unwrapTronkResponse(data) {
   return source;
 }
 
+/* Текст ошибки внешнего сервиса — для диагностики в ответе функции. */
+function describeProviderError(error) {
+  const provider = error?.providerResponse;
+  if (!provider) return null;
+  if (typeof provider === 'string') return provider.slice(0, 500);
+  const message = provider.message || provider.error_message || provider.raw || null;
+  if (message) return String(message).slice(0, 500);
+  try {
+    return JSON.stringify(provider).slice(0, 500);
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeError(error) {
   return {
     name:       error?.name       || 'Error',
@@ -384,14 +398,14 @@ async function lookupVehicleFull(plateInput) {
  * OCR паспортов — Yandex Vision OCR v1
  * Переменные окружения: VISION_API_KEY, YC_FOLDER_ID
  *
- * Формат запроса к /ocr/v1/recognizeText:
+ * Формат запроса к /ocr/v1/recognizeText (по документации Yandex Cloud):
  * {
- *   "mimeType": "image/jpeg",
- *   "content": "<base64>",
- *   "textDetectionConfig": {
- *     "languageCodes": ["ru", "en"]
- *   }
+ *   "mimeType": "JPEG",
+ *   "languageCodes": ["*"],
+ *   "model": "page",
+ *   "content": "<base64>"
  * }
+ * Все поля — в корне тела запроса, textDetectionConfig не используется.
  * ═══════════════════════════════════════════════════════ */
 
 function ensureVisionConfig() {
@@ -484,21 +498,24 @@ function extractTextLinesFromVision(data) {
   return Array.from(new Set(lines));
 }
 
-/*
- * Исправлено: languageCodes перемещён в textDetectionConfig,
- * лишнее поле model убрано — именно они вызывали HTTP 400 от Vision API.
- */
+/* Vision OCR принимает только JPEG, PNG и PDF. */
+function toVisionMimeType(mimeType) {
+  const value = String(mimeType || '').toLowerCase();
+  if (value.includes('pdf')) return 'PDF';
+  if (value.includes('png')) return 'PNG';
+  return 'JPEG';
+}
+
 async function recognizePassportPageRaw(file) {
   ensureVisionConfig();
 
   const data = await httpPostJson(
     'https://ocr.api.cloud.yandex.net/ocr/v1/recognizeText',
     {
-      mimeType: file.mimeType,
-      content:  file.content,
-      textDetectionConfig: {
-        languageCodes: ['ru', 'en'],
-      },
+      mimeType:      toVisionMimeType(file.mimeType),
+      languageCodes: ['*'],
+      model:         'page',
+      content:       file.content,
     },
     {
       Authorization:            `Api-Key ${VISION_API_KEY}`,
@@ -803,6 +820,7 @@ module.exports.handler = async function handler(event) {
     return jsonResponse(error.statusCode || 500, {
       ok:    false,
       error: error.message || 'Внутренняя ошибка функции.',
+      providerError: describeProviderError(error),
     });
   }
 };

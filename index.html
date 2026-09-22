@@ -167,7 +167,7 @@
             <div class="upload-zone" id="seller-main-zone" onclick="triggerUpload('seller-main-file')">
               <span class="upload-icon">📄</span>
               <span class="upload-label">Выбрать файл</span>
-              <span class="upload-sub">JPG, PNG, WEBP или PDF · до 10 МБ</span>
+              <span class="upload-sub">JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
               <span id="seller-main-name" class="upload-filename" hidden></span>
               <input type="file" id="seller-main-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('seller','main',this)">
             </div>
@@ -177,7 +177,7 @@
             <div class="upload-zone" id="seller-reg-zone" onclick="triggerUpload('seller-reg-file')">
               <span class="upload-icon">🏠</span>
               <span class="upload-label">Выбрать файл</span>
-              <span class="upload-sub">JPG, PNG, WEBP или PDF · до 10 МБ</span>
+              <span class="upload-sub">JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
               <span id="seller-reg-name" class="upload-filename" hidden></span>
               <input type="file" id="seller-reg-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('seller','reg',this)">
             </div>
@@ -203,7 +203,7 @@
             <div class="upload-zone" id="buyer-main-zone" onclick="triggerUpload('buyer-main-file')">
               <span class="upload-icon">📄</span>
               <span class="upload-label">Выбрать файл</span>
-              <span class="upload-sub">JPG, PNG, WEBP или PDF · до 10 МБ</span>
+              <span class="upload-sub">JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
               <span id="buyer-main-name" class="upload-filename" hidden></span>
               <input type="file" id="buyer-main-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('buyer','main',this)">
             </div>
@@ -213,7 +213,7 @@
             <div class="upload-zone" id="buyer-reg-zone" onclick="triggerUpload('buyer-reg-file')">
               <span class="upload-icon">🏠</span>
               <span class="upload-label">Выбрать файл</span>
-              <span class="upload-sub">JPG, PNG, WEBP или PDF · до 10 МБ</span>
+              <span class="upload-sub">JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
               <span id="buyer-reg-name" class="upload-filename" hidden></span>
               <input type="file" id="buyer-reg-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('buyer','reg',this)">
             </div>
@@ -416,14 +416,55 @@
 
     function fileToBase64(file) {
       return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          const result = reader.result;
-          const base64 = result.includes(',') ? result.split(',')[1] : result;
-          resolve(base64);
+        // PDF отправляем как есть — canvas к нему не применим
+        if (file.type === 'application/pdf') {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result;
+            resolve(result.includes(',') ? result.split(',')[1] : result);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+          return;
+        }
+
+        // Изображение сжимаем через canvas, чтобы не превысить лимит тела запроса
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+
+          const MAX_SIDE = 1600;
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+
+          if (w > MAX_SIDE || h > MAX_SIDE) {
+            const scale = MAX_SIDE / Math.max(w, h);
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width  = w;
+          canvas.height = h;
+
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Не удалось подготовить изображение для отправки.'));
+            return;
+          }
+
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL('image/jpeg', 0.82).split(',')[1]);
         };
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
+
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('Не удалось загрузить изображение для сжатия.'));
+        };
+
+        img.src = url;
       });
     }
 
@@ -431,8 +472,8 @@
       const file = input.files && input.files[0];
       if (!file) return;
 
-      if (file.size > 10 * 1024 * 1024) {
-        alert('Файл слишком большой. Максимальный размер — 10 МБ.');
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Файл слишком большой. Максимальный размер — 5 МБ.');
         input.value = '';
         return;
       }
@@ -508,7 +549,8 @@
 
       try {
         const mainBase64 = await fileToBase64(state.main);
-        const mainMime = state.main.type || 'image/jpeg';
+        // после сжатия все изображения становятся JPEG
+        const mainMime = state.main.type === 'application/pdf' ? 'application/pdf' : 'image/jpeg';
 
         const requestBody = {
           action: 'extract_passport',
@@ -518,7 +560,7 @@
 
         if (state.reg) {
           const regBase64 = await fileToBase64(state.reg);
-          const regMime = state.reg.type || 'image/jpeg';
+          const regMime = state.reg.type === 'application/pdf' ? 'application/pdf' : 'image/jpeg';
           requestBody.registrationPage = { mimeType: regMime, content: regBase64 };
         }
 
