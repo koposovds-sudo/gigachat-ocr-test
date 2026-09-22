@@ -506,7 +506,27 @@ function toVisionMimeType(mimeType) {
   return 'JPEG';
 }
 
-async function recognizePassportPageRaw(file) {
+/*
+ * Сущности шаблонных моделей Vision OCR: textAnnotation.entities = [{ name, text }].
+ */
+function extractEntitiesFromVision(data) {
+  const list = asObject(data).textAnnotation?.entities;
+  if (!Array.isArray(list)) return {};
+
+  const result = {};
+  for (const item of list) {
+    const name = String(asObject(item).name || '').trim();
+    const text = String(asObject(item).text || '').trim();
+    if (name && text && !result[name]) result[name] = text;
+  }
+  return result;
+}
+
+/*
+ * model = 'passport' — шаблонная модель основного разворота паспорта,
+ * model = 'page'     — обычный текст (страница регистрации с адресным штампом).
+ */
+async function recognizePassportPageRaw(file, model = 'page') {
   ensureVisionConfig();
 
   const data = await httpPostJson(
@@ -514,7 +534,7 @@ async function recognizePassportPageRaw(file) {
     {
       mimeType:      toVisionMimeType(file.mimeType),
       languageCodes: ['*'],
-      model:         'page',
+      model,
       content:       file.content,
     },
     {
@@ -526,7 +546,47 @@ async function recognizePassportPageRaw(file) {
   );
 
   const textLines = extractTextLinesFromVision(data);
-  return { text: normalizeSpaces(textLines.join('\n')), lines: textLines };
+  const fullText  = String(asObject(data).textAnnotation?.fullText || '').trim();
+
+  return {
+    text:     normalizeSpaces(fullText || textLines.join('\n')),
+    lines:    textLines,
+    entities: extractEntitiesFromVision(data),
+    model,
+  };
+}
+
+/* ── Сборка карточки из сущностей модели passport ── */
+
+function splitPassportNumber(value) {
+  const digits = onlyDigits(value);
+  if (digits.length === 10) {
+    return { passportSeries: digits.slice(0, 4), passportNumber: digits.slice(4) };
+  }
+  return { passportSeries: '', passportNumber: '' };
+}
+
+function personFromEntities(entities) {
+  const source        = asObject(entities);
+  const seriesAndNumber = splitPassportNumber(source.number);
+
+  return {
+    lastName:            titleCaseRus(source.surname     || ''),
+    firstName:           titleCaseRus(source.name        || ''),
+    middleName:          titleCaseRus(source.middle_name || ''),
+    birthDate:           formatDateRu(source.birth_date  || ''),
+    birthPlace:          titleCaseRus(source.birth_place || ''),
+    passportSeries:      seriesAndNumber.passportSeries,
+    passportNumber:      seriesAndNumber.passportNumber,
+    issuedBy:            titleCaseRus(source.issued_by   || ''),
+    departmentCode:      extractDepartmentCode(source.subdivision || ''),
+    issueDate:           formatDateRu(source.issue_date  || ''),
+    registrationAddress: '',
+  };
+}
+
+function countFilled(person) {
+  return Object.values(person).filter((v) => String(v || '').trim()).length;
 }
 
 /* ── Паспортные парсеры ── */
@@ -739,8 +799,16 @@ function checkPersonType(value) {
 
 async function recognizePassportPage(input) {
   const page   = validatePassportFile(input?.file || input, 'passport page');
-  const result = await recognizePassportPageRaw(page);
-  return { ok: true, mode: 'passport_page_recognition', text: result.text, lineCount: result.lines.length };
+  const model  = String(asObject(input).model || 'page').trim() || 'page';
+  const result = await recognizePassportPageRaw(page, model);
+  return {
+    ok:        true,
+    mode:      'passport_page_recognition',
+    model:     result.model,
+    text:      result.text,
+    lineCount: result.lines.length,
+    entities:  result.entities,
+  };
 }
 
 async function extractPassport(input) {
@@ -752,22 +820,41 @@ async function extractPassport(input) {
     registrationPage = validatePassportFile(input.registrationPage, 'registrationPage');
   }
 
-  const mainResult         = await recognizePassportPageRaw(mainPage);
-  const registrationResult = registrationPage
-    ? await recognizePassportPageRaw(registrationPage)
-    : { text: '', lines: [] };
+  // Основной разворот — шаблонная модель passport: поля приходят уже структурированными.
+  const mainResult = await recognizePassportPageRaw(mainPage, 'passport');
 
-  const extracted = extractPassportFromTexts(mainResult.text, registrationResult.text);
+  // Страница регистрации — шаблонной модели нет, читаем обычным текстом.
+  const registrationResult = registrationPage
+    ? await recognizePassportPageRaw(registrationPage, 'page')
+    : { text: '', lines: [], entities: {} };
+
+  const fromEntities = personFromEntities(mainResult.entities);
+  const fromText     = extractPassportFromTexts(mainResult.text, registrationResult.text);
+
+  // Шаблонная модель в приоритете; регулярки — только как резерв по пустым полям.
+  const usedEntities = countFilled(fromEntities) > 0;
+
+  const person = {};
+  for (const key of Object.keys(fromText.person)) {
+    person[key] = String(fromEntities[key] || '').trim() || fromText.person[key] || '';
+  }
+  person.registrationAddress = extractRegistrationAddress(registrationResult.text);
+
+  const warnings = buildWarnings(person, mainResult.text, registrationResult.text);
+  if (!usedEntities) {
+    warnings.push('Шаблонная модель паспорта не вернула поля — использован резервный разбор текста. Проверьте качество фото.');
+  }
 
   return {
     ok:            true,
     mode:          'passport_extract',
     personType,
-    person:        extracted.person,
-    missingFields: extracted.missingFields,
-    warnings:      extracted.warnings,
+    person,
+    missingFields: buildMissingFields(person),
+    warnings,
+    source:        usedEntities ? 'vision_passport_model' : 'text_fallback',
     recognizedPages: {
-      mainPage:         Boolean(mainResult.text),
+      mainPage:         Boolean(mainResult.text) || usedEntities,
       registrationPage: Boolean(registrationResult.text),
     },
   };
