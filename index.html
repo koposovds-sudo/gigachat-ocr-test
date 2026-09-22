@@ -80,6 +80,25 @@
     .upload-label { font-weight: 600; font-size: 14px; color: var(--brand); }
     .upload-sub { font-size: 12px; color: var(--muted); }
     .upload-filename { font-size: 13px; color: var(--success); font-weight: 600; word-break: break-all; }
+    .upload-quality { font-size: 12px; font-weight: 600; }
+    .upload-quality.ok { color: var(--success); }
+    .upload-quality.warn { color: var(--warn); }
+    .zone-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 4px; }
+    .zone-actions button { min-height: 38px; padding: 8px 14px; font-size: 13px; }
+
+    /* Режим съёмки с рамкой-гидом */
+    .cam { position: fixed; inset: 0; z-index: 50; display: none; flex-direction: column; background: #06101f; }
+    .cam.show { display: flex; }
+    .cam-stage { position: relative; flex: 1; overflow: hidden; }
+    .cam-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+    .cam-frame { position: absolute; border: 3px solid rgba(255,255,255,.95); border-radius: 10px; box-shadow: 0 0 0 100vmax rgba(4,10,20,.58); pointer-events: none; }
+    .cam-frame::after { content: attr(data-hint); position: absolute; left: 0; right: 0; bottom: -30px; color: #fff; font-size: 12px; font-weight: 600; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+    .cam-mrz { position: absolute; left: 4%; right: 4%; bottom: 5%; height: 15%; border: 2px dashed rgba(255,214,94,.95); border-radius: 6px; }
+    .cam-mrz::after { content: 'MRZ — две строки в кадре'; position: absolute; left: 0; right: 0; top: -20px; color: #ffd65e; font-size: 11px; font-weight: 700; text-align: center; }
+    .cam-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); background: #0b1a2e; }
+    .cam-bar button { flex: 1 1 130px; }
+    .cam-msg { flex: 1 1 100%; min-height: 20px; color: #ffd65e; font-size: 13px; font-weight: 600; text-align: center; }
+    .cam-msg.err { color: #ff9b91; }
     .ocr-row { display: flex; gap: 12px; align-items: center; margin-top: 14px; }
     .missing-badge { display: inline-block; padding: 2px 8px; border-radius: 5px; background: #fff3cd; color: #7a4f00; font-size: 12px; font-weight: 600; margin-left: 6px; }
 
@@ -164,21 +183,29 @@
         <div class="grid">
           <div>
             <label>Основной разворот (фото страниц 2–3)</label>
-            <div class="upload-zone" id="seller-main-zone" onclick="triggerUpload('seller-main-file')">
+            <div class="upload-zone" id="seller-main-zone">
               <span class="upload-icon">📄</span>
-              <span class="upload-label">Выбрать файл</span>
-              <span class="upload-sub">JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
+              <span class="upload-sub">Рамка 1,41 : 1 · JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
+              <div class="zone-actions">
+                <button type="button" onclick="openCamera('seller','main')">Снять камерой</button>
+                <button type="button" class="btn-secondary" onclick="triggerUpload('seller-main-file')">Выбрать файл</button>
+              </div>
               <span id="seller-main-name" class="upload-filename" hidden></span>
+              <span id="seller-main-quality" class="upload-quality" hidden></span>
               <input type="file" id="seller-main-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('seller','main',this)">
             </div>
           </div>
           <div>
             <label>Страница регистрации (фото страницы 5 или штампа)</label>
-            <div class="upload-zone" id="seller-reg-zone" onclick="triggerUpload('seller-reg-file')">
+            <div class="upload-zone" id="seller-reg-zone">
               <span class="upload-icon">🏠</span>
-              <span class="upload-label">Выбрать файл</span>
-              <span class="upload-sub">JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
+              <span class="upload-sub">Рамка одной страницы · JPG, PNG, WEBP · до 5 МБ</span>
+              <div class="zone-actions">
+                <button type="button" onclick="openCamera('seller','reg')">Снять камерой</button>
+                <button type="button" class="btn-secondary" onclick="triggerUpload('seller-reg-file')">Выбрать файл</button>
+              </div>
               <span id="seller-reg-name" class="upload-filename" hidden></span>
+              <span id="seller-reg-quality" class="upload-quality" hidden></span>
               <input type="file" id="seller-reg-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('seller','reg',this)">
             </div>
           </div>
@@ -200,21 +227,29 @@
         <div class="grid">
           <div>
             <label>Основной разворот (фото страниц 2–3)</label>
-            <div class="upload-zone" id="buyer-main-zone" onclick="triggerUpload('buyer-main-file')">
+            <div class="upload-zone" id="buyer-main-zone">
               <span class="upload-icon">📄</span>
-              <span class="upload-label">Выбрать файл</span>
-              <span class="upload-sub">JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
+              <span class="upload-sub">Рамка 1,41 : 1 · JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
+              <div class="zone-actions">
+                <button type="button" onclick="openCamera('buyer','main')">Снять камерой</button>
+                <button type="button" class="btn-secondary" onclick="triggerUpload('buyer-main-file')">Выбрать файл</button>
+              </div>
               <span id="buyer-main-name" class="upload-filename" hidden></span>
+              <span id="buyer-main-quality" class="upload-quality" hidden></span>
               <input type="file" id="buyer-main-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('buyer','main',this)">
             </div>
           </div>
           <div>
             <label>Страница регистрации (фото страницы 5 или штампа)</label>
-            <div class="upload-zone" id="buyer-reg-zone" onclick="triggerUpload('buyer-reg-file')">
+            <div class="upload-zone" id="buyer-reg-zone">
               <span class="upload-icon">🏠</span>
-              <span class="upload-label">Выбрать файл</span>
-              <span class="upload-sub">JPG, PNG, WEBP · до 5 МБ · PDF без сжатия</span>
+              <span class="upload-sub">Рамка одной страницы · JPG, PNG, WEBP · до 5 МБ</span>
+              <div class="zone-actions">
+                <button type="button" onclick="openCamera('buyer','reg')">Снять камерой</button>
+                <button type="button" class="btn-secondary" onclick="triggerUpload('buyer-reg-file')">Выбрать файл</button>
+              </div>
               <span id="buyer-reg-name" class="upload-filename" hidden></span>
+              <span id="buyer-reg-quality" class="upload-quality" hidden></span>
               <input type="file" id="buyer-reg-file" accept="image/jpeg,image/png,image/webp,application/pdf" onchange="handleFileSelect('buyer','reg',this)">
             </div>
           </div>
@@ -233,6 +268,19 @@
 
     <p class="footer">Сервис не хранит данные в браузере после закрытия страницы. API-ключи внешних сервисов на странице не используются.</p>
   </main>
+
+  <!-- Режим съёмки: рамка-гид с пропорциями бланка паспорта -->
+  <div class="cam" id="cam" role="dialog" aria-modal="true" aria-label="Съёмка документа">
+    <div class="cam-stage" id="cam-stage">
+      <video id="cam-video" playsinline muted autoplay></video>
+      <div class="cam-frame" id="cam-frame" data-hint=""><div class="cam-mrz" id="cam-mrz"></div></div>
+    </div>
+    <div class="cam-bar">
+      <div class="cam-msg" id="cam-msg"></div>
+      <button type="button" id="cam-shot" onclick="captureFromCamera()">Снять кадр</button>
+      <button type="button" class="btn-secondary" onclick="closeCamera()">Отмена</button>
+    </div>
+  </div>
 
   <script>
     'use strict';
@@ -397,6 +445,21 @@
       buyer:  { main: null, reg: null },
     };
 
+    /*
+     * Бланк паспорта РФ — 88 × 125 мм.
+     * Разворот 2–3: 176 × 125 мм → 1,408 : 1 (горизонтально).
+     * Одна страница (регистрация): 88 × 125 мм → 0,704 : 1 (вертикально).
+     */
+    const CAPTURE_PRESETS = {
+      main: { aspect: 176 / 125, hint: 'Весь разворот в рамке, MRZ внизу', showMrz: true  },
+      reg:  { aspect: 88  / 125, hint: 'Страница со штампом целиком в рамке', showMrz: false },
+    };
+
+    // Пороги качества: ниже них OCR почти всегда даёт мусор.
+    const QUALITY = { minShortSide: 900, minSharpness: 55, maxOverexposed: 0.16 };
+
+    const cameraSession = { stream: null, personType: null, page: null };
+
     function switchTab(personType) {
       ['seller', 'buyer'].forEach(pt => {
         document.getElementById(`tab-${pt}`).classList.toggle('active', pt === personType);
@@ -468,7 +531,103 @@
       });
     }
 
-    function handleFileSelect(personType, page, input) {
+    function setPassportFile(personType, page, file, qualityNote) {
+      const key    = page === 'main' ? 'main' : 'reg';
+      const nameEl = document.getElementById(`${personType}-${key}-name`);
+      const zoneEl = document.getElementById(`${personType}-${key}-zone`);
+      const qualEl = document.getElementById(`${personType}-${key}-quality`);
+
+      nameEl.textContent = file.name;
+      nameEl.hidden = false;
+      zoneEl.classList.add('has-file');
+
+      if (qualEl) {
+        if (qualityNote) {
+          qualEl.textContent = qualityNote.text;
+          qualEl.className   = `upload-quality ${qualityNote.ok ? 'ok' : 'warn'}`;
+          qualEl.hidden      = false;
+        } else {
+          qualEl.hidden = true;
+        }
+      }
+
+      passportState[personType][page] = file;
+      updateOcrButton(personType);
+      document.getElementById(`${personType}-ocr-status`).className = 'status';
+    }
+
+    /* ── Проверка качества снимка ── */
+
+    /*
+     * Считаем три показателя по уменьшенной копии кадра:
+     * разрешение, резкость (дисперсия лапласиана) и долю пересветов.
+     */
+    function analyzeImageQuality(source, width, height) {
+      const shortSide = Math.min(width, height);
+      const scale     = Math.min(1, 700 / Math.max(width, height));
+      const w = Math.max(2, Math.round(width  * scale));
+      const h = Math.max(2, Math.round(height * scale));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return { shortSide, sharpness: Infinity, overexposed: 0 };
+
+      ctx.drawImage(source, 0, 0, w, h);
+      const data = ctx.getImageData(0, 0, w, h).data;
+
+      const gray = new Float32Array(w * h);
+      let bright = 0;
+      for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+        const value = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        gray[p] = value;
+        if (value > 249) bright++;
+      }
+
+      let sum = 0;
+      let sumSq = 0;
+      let count = 0;
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = y * w + x;
+          const lap =
+            4 * gray[idx] - gray[idx - 1] - gray[idx + 1] - gray[idx - w] - gray[idx + w];
+          sum   += lap;
+          sumSq += lap * lap;
+          count++;
+        }
+      }
+
+      const mean      = count ? sum / count : 0;
+      const sharpness = count ? Math.sqrt(Math.max(0, sumSq / count - mean * mean)) : 0;
+
+      return { shortSide, sharpness, overexposed: bright / (w * h) };
+    }
+
+    function describeQuality(metrics) {
+      const problems = [];
+      if (metrics.shortSide < QUALITY.minShortSide)      problems.push('низкое разрешение');
+      if (metrics.sharpness < QUALITY.minSharpness)      problems.push('смазанность');
+      if (metrics.overexposed > QUALITY.maxOverexposed)  problems.push('пересветы или блики');
+
+      if (!problems.length) {
+        return { ok: true, text: `Качество снимка достаточное (${metrics.shortSide} px)` };
+      }
+      return { ok: false, text: `Качество низкое: ${problems.join(', ')}` };
+    }
+
+    function loadImageFromFile(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Не удалось открыть изображение.')); };
+        img.src = url;
+      });
+    }
+
+    async function handleFileSelect(personType, page, input) {
       const file = input.files && input.files[0];
       if (!file) return;
 
@@ -478,19 +637,175 @@
         return;
       }
 
-      const nameEl = document.getElementById(`${personType}-${page === 'main' ? 'main' : 'reg'}-name`);
-      const zoneEl = document.getElementById(`${personType}-${page === 'main' ? 'main' : 'reg'}-zone`);
+      let note = null;
+      if (file.type !== 'application/pdf') {
+        try {
+          const img = await loadImageFromFile(file);
+          note = describeQuality(analyzeImageQuality(img, img.naturalWidth, img.naturalHeight));
+        } catch {
+          note = null;
+        }
+      }
 
-      nameEl.textContent = file.name;
-      nameEl.hidden = false;
-      zoneEl.classList.add('has-file');
-
-      passportState[personType][page] = file;
-      updateOcrButton(personType);
-
-      const ocrStatusEl = document.getElementById(`${personType}-ocr-status`);
-      ocrStatusEl.className = 'status';
+      setPassportFile(personType, page, file, note);
     }
+
+    /* ── Съёмка с рамкой-гидом ── */
+
+    function setCameraMessage(text, isError) {
+      const el = document.getElementById('cam-msg');
+      el.textContent = text || '';
+      el.className = `cam-msg${isError ? ' err' : ''}`;
+    }
+
+    // Рамка вписывается в область видоискателя с запасом 6 %.
+    function layoutCameraFrame() {
+      const preset = CAPTURE_PRESETS[cameraSession.page] || CAPTURE_PRESETS.main;
+      const stage  = document.getElementById('cam-stage');
+      const frame  = document.getElementById('cam-frame');
+
+      const availableW = stage.clientWidth  * 0.94;
+      const availableH = stage.clientHeight * 0.88;
+
+      let width  = availableW;
+      let height = width / preset.aspect;
+
+      if (height > availableH) {
+        height = availableH;
+        width  = height * preset.aspect;
+      }
+
+      frame.style.width  = `${Math.round(width)}px`;
+      frame.style.height = `${Math.round(height)}px`;
+      frame.style.left   = `${Math.round((stage.clientWidth  - width)  / 2)}px`;
+      frame.style.top    = `${Math.round((stage.clientHeight - height) / 2)}px`;
+      frame.dataset.hint = preset.hint;
+
+      document.getElementById('cam-mrz').style.display = preset.showMrz ? 'block' : 'none';
+    }
+
+    async function openCamera(personType, page) {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Браузер не даёт доступ к камере. Воспользуйтесь кнопкой «Выбрать файл».');
+        return;
+      }
+
+      cameraSession.personType = personType;
+      cameraSession.page = page;
+
+      const modal = document.getElementById('cam');
+      const video = document.getElementById('cam-video');
+
+      modal.classList.add('show');
+      setCameraMessage('Запрашиваем доступ к камере…', false);
+
+      try {
+        cameraSession.stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'environment' },
+            width:  { ideal: 3840 },
+            height: { ideal: 2160 },
+          },
+          audio: false,
+        });
+      } catch (error) {
+        setCameraMessage('Нет доступа к камере. Разрешите его в настройках сайта или выберите файл.', true);
+        return;
+      }
+
+      video.srcObject = cameraSession.stream;
+      await video.play().catch(() => {});
+
+      layoutCameraFrame();
+      setCameraMessage('Положите документ ровно в рамку и снимите кадр.', false);
+    }
+
+    function closeCamera() {
+      if (cameraSession.stream) {
+        cameraSession.stream.getTracks().forEach((track) => track.stop());
+        cameraSession.stream = null;
+      }
+      document.getElementById('cam-video').srcObject = null;
+      document.getElementById('cam').classList.remove('show');
+      setCameraMessage('', false);
+    }
+
+    /*
+     * Видео отрисовано с object-fit: cover, поэтому координаты рамки пересчитываем
+     * в собственное разрешение потока, иначе обрезка уедет.
+     */
+    function frameRectInVideoPixels(video, stage, frame) {
+      const scale   = Math.max(stage.clientWidth / video.videoWidth, stage.clientHeight / video.videoHeight);
+      const shownW  = video.videoWidth  * scale;
+      const shownH  = video.videoHeight * scale;
+      const offsetX = (shownW - stage.clientWidth)  / 2;
+      const offsetY = (shownH - stage.clientHeight) / 2;
+
+      const left = (parseFloat(frame.style.left) + offsetX) / scale;
+      const top  = (parseFloat(frame.style.top)  + offsetY) / scale;
+      const w    = parseFloat(frame.style.width)  / scale;
+      const h    = parseFloat(frame.style.height) / scale;
+
+      return {
+        sx: Math.max(0, Math.round(left)),
+        sy: Math.max(0, Math.round(top)),
+        sw: Math.min(video.videoWidth,  Math.round(w)),
+        sh: Math.min(video.videoHeight, Math.round(h)),
+      };
+    }
+
+    function canvasToFile(canvas, name) {
+      return new Promise((resolve) => {
+        canvas.toBlob(
+          (blob) => resolve(new File([blob], name, { type: 'image/jpeg' })),
+          'image/jpeg',
+          0.92
+        );
+      });
+    }
+
+    async function captureFromCamera() {
+      const video = document.getElementById('cam-video');
+      const stage = document.getElementById('cam-stage');
+      const frame = document.getElementById('cam-frame');
+
+      if (!video.videoWidth) {
+        setCameraMessage('Камера ещё не готова, подождите секунду.', true);
+        return;
+      }
+
+      const rect   = frameRectInVideoPixels(video, stage, frame);
+      const canvas = document.createElement('canvas');
+      canvas.width  = rect.sw;
+      canvas.height = rect.sh;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        setCameraMessage('Не удалось обработать кадр.', true);
+        return;
+      }
+      ctx.drawImage(video, rect.sx, rect.sy, rect.sw, rect.sh, 0, 0, rect.sw, rect.sh);
+
+      const note = describeQuality(analyzeImageQuality(canvas, canvas.width, canvas.height));
+      if (!note.ok) {
+        setCameraMessage(`${note.text}. Переснимите: больше света, держите телефон ровно, дождитесь фокуса.`, true);
+        return;
+      }
+
+      const label = cameraSession.page === 'main' ? 'razvorot' : 'registraciya';
+      const file  = await canvasToFile(canvas, `${cameraSession.personType}-${label}.jpg`);
+
+      setPassportFile(cameraSession.personType, cameraSession.page, file, note);
+      closeCamera();
+    }
+
+    window.addEventListener('resize', () => {
+      if (document.getElementById('cam').classList.contains('show')) layoutCameraFrame();
+    });
+
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && document.getElementById('cam').classList.contains('show')) closeCamera();
+    });
 
     function renderPassportFields(personType, person, missingFields, warnings) {
       const container = document.getElementById(`${personType}-fields`);
