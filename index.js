@@ -217,8 +217,11 @@ function httpPostJson(url, body, headers = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
           catch { data = { raw }; }
 
           if (response.statusCode < 200 || response.statusCode >= 300) {
-            const error = new Error(`Внешний OCR-сервис вернул HTTP ${response.statusCode}.`);
+            const error = new Error(response.statusCode === 429
+              ? 'Сервис распознавания ограничил частоту запросов (HTTP 429). Подождите несколько секунд и повторите.'
+              : `Внешний сервис вернул HTTP ${response.statusCode}.`);
             error.statusCode = 502;
+            error.providerStatus = response.statusCode;
             error.providerResponse = data;
             finish(reject, error);
             return;
@@ -559,24 +562,45 @@ function extractEntitiesFromVision(data) {
  * model = 'passport' — шаблонная модель основного разворота паспорта,
  * model = 'page'     — обычный текст (страница регистрации с адресным штампом).
  */
+/* Vision ограничивает частоту запросов: на 429 и 5xx ждём и пробуем ещё раз. */
+const OCR_RETRY_DELAYS_MS = [900, 2200, 4500];
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetriableOcrError(error) {
+  const status = error && error.providerStatus;
+  return status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+}
+
 async function recognizePassportPageRaw(file, model = 'page') {
   ensureVisionConfig();
 
-  const data = await httpPostJson(
-    'https://ocr.api.cloud.yandex.net/ocr/v1/recognizeText',
-    {
-      mimeType:      toVisionMimeType(file.mimeType),
-      languageCodes: ['*'],
-      model,
-      content:       file.content,
-    },
-    {
-      Authorization:            `Api-Key ${VISION_API_KEY}`,
-      'x-folder-id':            YC_FOLDER_ID,
-      'x-data-logging-enabled': 'false',
-    },
-    OCR_TIMEOUT_MS
-  );
+  let data;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      data = await httpPostJson(
+        'https://ocr.api.cloud.yandex.net/ocr/v1/recognizeText',
+        {
+          mimeType:      toVisionMimeType(file.mimeType),
+          languageCodes: ['*'],
+          model,
+          content:       file.content,
+        },
+        {
+          Authorization:            `Api-Key ${VISION_API_KEY}`,
+          'x-folder-id':            YC_FOLDER_ID,
+          'x-data-logging-enabled': 'false',
+        },
+        OCR_TIMEOUT_MS
+      );
+      break;
+    } catch (error) {
+      if (attempt >= OCR_RETRY_DELAYS_MS.length || !isRetriableOcrError(error)) throw error;
+      await delay(OCR_RETRY_DELAYS_MS[attempt]);
+    }
+  }
 
   const textLines = extractTextLinesFromVision(data);
   const fullText  = String(asObject(data).textAnnotation?.fullText || '').trim();
@@ -948,16 +972,25 @@ async function llmExtractPassport(mainText, registrationText, entities, mrz) {
   };
 
   try {
-    const data = await httpPostJson(
-      'https://llm.api.cloud.yandex.net/foundationModels/v1/completion',
-      body,
-      {
-        Authorization:            `Api-Key ${LLM_API_KEY}`,
-        'x-folder-id':            YC_FOLDER_ID,
-        'x-data-logging-enabled': 'false',
-      },
-      LLM_TIMEOUT_MS
-    );
+    let data;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        data = await httpPostJson(
+          'https://llm.api.cloud.yandex.net/foundationModels/v1/completion',
+          body,
+          {
+            Authorization:            `Api-Key ${LLM_API_KEY}`,
+            'x-folder-id':            YC_FOLDER_ID,
+            'x-data-logging-enabled': 'false',
+          },
+          LLM_TIMEOUT_MS
+        );
+        break;
+      } catch (error) {
+        if (attempt >= OCR_RETRY_DELAYS_MS.length || !isRetriableOcrError(error)) throw error;
+        await delay(OCR_RETRY_DELAYS_MS[attempt]);
+      }
+    }
 
     const alternatives = asObject(asObject(data).result).alternatives;
     const text = Array.isArray(alternatives)
@@ -1517,13 +1550,21 @@ async function extractPassport(input) {
    * - 'page' даёт полный текст вместе с MRZ (шаблонная модель MRZ не отдаёт);
    * - 'passport' даёт структурированные поля, но её текст бывает недостоверным.
    */
-  const [templateResult, plainResult, registrationResult] = await Promise.all([
-    recognizePassportPageRaw(mainPage, 'passport'),
-    recognizePassportPageRaw(mainPage, 'page'),
-    registrationPage
-      ? recognizePassportPageRaw(registrationPage, 'page')
-      : Promise.resolve({ text: '', lines: [], entities: {} }),
-  ]);
+  // Запросы идут последовательно: параллельные вызовы упираются в лимит частоты Vision (HTTP 429).
+  const plainResult = await recognizePassportPageRaw(mainPage, 'page');
+
+  // Шаблонная модель необязательна: если она недоступна, работаем по тексту и MRZ.
+  let templateResult = { text: '', lines: [], entities: {} };
+  let templateError  = null;
+  try {
+    templateResult = await recognizePassportPageRaw(mainPage, 'passport');
+  } catch (error) {
+    templateError = describeProviderError(error) || error.message;
+  }
+
+  const registrationResult = registrationPage
+    ? await recognizePassportPageRaw(registrationPage, 'page')
+    : { text: '', lines: [], entities: {} };
 
   // Дальше «основной текст» — это вывод обычной модели: он полнее и содержит MRZ.
   const mainResult = { ...plainResult, entities: templateResult.entities };
@@ -1564,6 +1605,9 @@ async function extractPassport(input) {
   }
   if (!usedLlm) {
     warnings.push(`Интеллектуальный разбор не применён: ${llmResult.error || 'модель не вернула поля'}.`);
+  }
+  if (templateError) {
+    warnings.push(`Шаблонная модель Vision недоступна (${templateError}) — поля собраны по тексту и MRZ.`);
   }
   if (!mrz) {
     warnings.push('Не прочитана машиночитаемая зона (две строки латиницей внизу разворота) — серия, номер и даты взяты из бланка и могут быть неточными. Переснимите разворот так, чтобы эти строки полностью попали в кадр.');
