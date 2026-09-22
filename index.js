@@ -700,9 +700,11 @@ function isNameCandidateLine(line) {
   if (/\d/.test(line)) return false;                  // в ФИО не бывает цифр
   const upper = upperRus(line);
   if (!hasCyrillic(upper)) return false;              // латиница — это MRZ
-  if (!isLikelyFullNameLine(upper)) return false;
 
   const words = cleanNameLine(upper).split(' ').filter(Boolean);
+  if (!words.length || words.length > 4) return false;
+  if (!words.every((word) => /^[А-Я-]{2,}$/.test(word))) return false;
+
   return words.every((word) => !NAME_STOP_WORDS.includes(word));
 }
 
