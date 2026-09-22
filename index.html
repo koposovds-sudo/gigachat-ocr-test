@@ -3,123 +3,248 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Тест Yandex Vision OCR</title>
+  <meta name="description" content="Поиск автомобиля по госномеру и заполнение карточки для договора купли-продажи">
+  <title>Карточка автомобиля для ДКП</title>
   <style>
-    :root { color-scheme: light; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; font-family: Arial, Helvetica, sans-serif; background: #f3f6fb; color: #172033; }
-    .page { width: min(920px, calc(100% - 32px)); margin: 40px auto; }
-    .card { background: #fff; border: 1px solid #dfe6f2; border-radius: 18px; box-shadow: 0 16px 45px rgba(38, 61, 105, .09); overflow: hidden; }
-    .head { padding: 28px 30px 22px; border-bottom: 1px solid #e9edf5; }
-    h1 { margin: 0 0 9px; font-size: clamp(24px, 4vw, 34px); }
-    .lead { margin: 0; color: #58677e; line-height: 1.55; }
-    .content { padding: 30px; }
-    .dropzone { display: block; padding: 30px; border: 2px dashed #89a7df; border-radius: 14px; background: #f7faff; text-align: center; cursor: pointer; transition: .2s; }
-    .dropzone:hover, .dropzone.dragover { border-color: #2f6adf; background: #edf4ff; }
-    .dropzone strong { display: block; margin-bottom: 7px; font-size: 18px; }
-    .dropzone span { color: #61708a; font-size: 14px; }
-    #fileInput { display: none; }
-    .file-info { display: none; margin-top: 18px; padding: 14px 16px; border-radius: 10px; background: #f2f6fc; color: #31415d; line-height: 1.5; word-break: break-word; }
-    .controls { display: flex; gap: 12px; margin-top: 22px; flex-wrap: wrap; }
-    button { border: 0; border-radius: 10px; padding: 13px 18px; font-size: 16px; font-weight: 700; cursor: pointer; transition: .2s; }
-    button:disabled { cursor: not-allowed; opacity: .55; }
-    .primary { color: #fff; background: #2864d7; }
-    .primary:hover:not(:disabled) { background: #1d52ba; }
-    .secondary { color: #2856a5; background: #eaf1ff; }
-    .secondary:hover:not(:disabled) { background: #dce9ff; }
-    .status { display: none; margin-top: 22px; padding: 14px 16px; border-radius: 10px; line-height: 1.5; }
-    .status.info { display: block; color: #174a96; background: #eaf3ff; }
-    .status.success { display: block; color: #17643d; background: #e6f7ed; }
-    .status.error { display: block; color: #a42525; background: #ffeded; }
-    .result { display: none; margin-top: 22px; }
-    .result h2 { margin: 0 0 12px; font-size: 21px; }
-    .meta { margin-bottom: 12px; color: #66758d; line-height: 1.5; }
-    pre { margin: 0; max-height: 520px; overflow: auto; padding: 18px; border: 1px solid #dfe6f2; border-radius: 10px; background: #101827; color: #e7eefb; white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.55 Consolas, Monaco, monospace; }
-    .note { margin: 22px 0 0; color: #65748d; font-size: 13px; line-height: 1.55; }
-    .note b { color: #273b5d; }
+    :root { --card:#fff; --text:#182235; --muted:#68758a; --line:#dfe6f0; --brand:#1769e0; --brand-dark:#0f56bd; --success:#0b7a45; --warn:#9a5c00; --danger:#b42318; --shadow:0 14px 38px rgba(19,43,80,.10); }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--text); font:16px/1.5 Inter,Segoe UI,Roboto,Arial,sans-serif; background:linear-gradient(180deg,#eaf2ff 0,#f4f7fb 290px); }
+    .container { width:min(1080px,calc(100% - 32px)); margin:0 auto; padding:42px 0 56px; }
+    .hero { margin-bottom:24px; }
+    h1 { margin:0 0 10px; font-size:clamp(28px,5vw,43px); line-height:1.12; letter-spacing:-.035em; }
+    h2 { margin:0; font-size:21px; }
+    .lead { max-width:730px; margin:0; color:var(--muted); font-size:17px; }
+    .card { margin-top:20px; padding:24px; border:1px solid var(--line); border-radius:18px; background:var(--card); box-shadow:var(--shadow); }
+    .search-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:12px; align-items:end; }
+    label { display:block; margin-bottom:7px; font-weight:650; font-size:14px; }
+    input { width:100%; padding:13px 14px; border:1px solid #bdc9db; border-radius:10px; color:var(--text); font:inherit; background:#fff; outline:none; }
+    input:focus { border-color:var(--brand); box-shadow:0 0 0 3px rgba(23,105,224,.16); }
+    .plate-input { text-transform:uppercase; letter-spacing:.08em; font-size:19px; font-weight:700; }
+    button { min-height:48px; padding:12px 18px; border:0; border-radius:10px; cursor:pointer; color:#fff; font:inherit; font-weight:700; background:var(--brand); transition:background .15s,transform .15s; }
+    button:hover:not(:disabled) { background:var(--brand-dark); }
+    button:active:not(:disabled) { transform:translateY(1px); }
+    button:disabled { cursor:wait; opacity:.64; }
+    .hint { margin:10px 0 0; color:var(--muted); font-size:13px; }
+    .status { display:none; margin-top:16px; padding:12px 14px; border-radius:10px; font-size:14px; }
+    .status.show { display:block; }
+    .status.loading { color:#164e9b; background:#edf5ff; }
+    .status.error { color:var(--danger); background:#fff1f0; }
+    .status.success { color:var(--success); background:#ebf9f0; }
+    .vehicle { display:none; }
+    .vehicle.show { display:block; }
+    .vehicle-top { display:grid; grid-template-columns:180px minmax(0,1fr); gap:22px; align-items:start; margin:20px 0 24px; }
+    .photo { width:180px; height:135px; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:#f0f3f8; }
+    .photo img { width:100%; height:100%; object-fit:cover; }
+    .photo.empty::after { content:'Фото не найдено'; display:grid; width:100%; height:100%; place-items:center; color:var(--muted); font-size:13px; }
+    .vehicle-name { margin:2px 0 4px; font-size:28px; line-height:1.2; letter-spacing:-.02em; }
+    .vin { margin:0; color:var(--muted); overflow-wrap:anywhere; }
+    .registry { margin:0 0 20px; padding:12px 14px; border-radius:10px; font-size:14px; }
+    .registry.warn { color:var(--warn); background:#fff8e7; }
+    .registry.ok { color:var(--success); background:#ebf9f0; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+    .field small { display:block; margin-top:5px; color:var(--muted); font-size:12px; }
+    .notice { margin:20px 0 0; padding:14px 16px; border-left:4px solid #e5a700; border-radius:8px; color:#5e4a00; background:#fff9df; font-size:14px; }
+    .footer { margin-top:22px; color:var(--muted); font-size:13px; }
+    @media (max-width:640px) { .container { width:min(100% - 24px,1080px); padding-top:28px; } .card { padding:18px; } .search-row,.vehicle-top,.grid { grid-template-columns:1fr; } .photo { width:100%; height:210px; } button { width:100%; } }
   </style>
 </head>
 <body>
-  <main class="page">
-    <section class="card">
-      <header class="head">
-        <h1>Тест распознавания документов</h1>
-        <p class="lead">Загрузите PDF, JPG или PNG. Файл будет отправлен в вашу Yandex Cloud Function, которая вызовет Yandex Vision OCR и вернёт распознанный текст.</p>
-      </header>
-      <div class="content">
-        <label class="dropzone" id="dropzone" for="fileInput">
-          <strong>Выбрать документ</strong>
-          <span>Поддерживаются PDF, JPG, JPEG и PNG. Максимальный размер — 10 МБ.</span>
-        </label>
-        <input id="fileInput" type="file" accept="application/pdf,image/jpeg,image/png">
-        <div class="file-info" id="fileInfo"></div>
-        <div class="controls">
-          <button class="primary" id="recognizeButton" type="button" disabled>Распознать текст</button>
-          <button class="secondary" id="clearButton" type="button" disabled>Очистить</button>
+  <main class="container">
+    <header class="hero">
+      <h1>Карточка автомобиля для ДКП</h1>
+      <p class="lead">Введите госномер, чтобы получить доступные сведения об автомобиле и перенести их в редактируемую карточку договора купли-продажи.</p>
+    </header>
+
+    <section class="card" aria-labelledby="lookup-title">
+      <h2 id="lookup-title">Поиск по госномеру</h2>
+      <form id="lookup-form" novalidate>
+        <div class="search-row">
+          <div>
+            <label for="plate">Государственный регистрационный номер</label>
+            <input id="plate" class="plate-input" name="plate" autocomplete="off" placeholder="А125АА163" maxlength="10" required>
+          </div>
+          <button id="search-button" type="submit">Найти автомобиль</button>
         </div>
-        <div class="status" id="status" role="status" aria-live="polite"></div>
-        <section class="result" id="result">
-          <h2>Распознанный текст</h2>
-          <div class="meta" id="resultMeta"></div>
-          <pre id="resultText"></pre>
-        </section>
-        <p class="note"><b>Конфиденциальность:</b> страница не содержит API-ключей. Файл передаётся только в Cloud Function для выполнения OCR. Не загружайте документы, если вы не согласны с такой обработкой.</p>
-      </div>
+        <p class="hint">Проверка использует внешний сервис. Не вводите персональные данные в это поле.</p>
+      </form>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
     </section>
+
+    <section id="vehicle-card" class="card vehicle" aria-labelledby="vehicle-title">
+      <h2 id="vehicle-title">Сведения об автомобиле</h2>
+      <div class="vehicle-top">
+        <div id="photo" class="photo empty"><img id="vehicle-image" alt="Фото автомобиля" hidden></div>
+        <div>
+          <div id="vehicle-name" class="vehicle-name">Автомобиль</div>
+          <p id="vehicle-vin" class="vin">VIN: не указан</p>
+        </div>
+      </div>
+      <div id="registry-status" class="registry" hidden></div>
+      <form id="vehicle-form">
+        <div class="grid">
+          <div class="field"><label for="dkp-plate">Госномер</label><input id="dkp-plate" name="plate"></div>
+          <div class="field"><label for="vin">VIN</label><input id="vin" name="vin"></div>
+          <div class="field"><label for="brand">Марка</label><input id="brand" name="brand"></div>
+          <div class="field"><label for="model">Модель</label><input id="model" name="model"></div>
+          <div class="field"><label for="year">Год выпуска</label><input id="year" name="year" inputmode="numeric"></div>
+          <div class="field"><label for="color">Цвет</label><input id="color" name="color"></div>
+          <div class="field"><label for="engine-volume">Рабочий объём двигателя, см³</label><input id="engine-volume" name="engineVolume" inputmode="numeric"></div>
+          <div class="field"><label for="power">Мощность, л. с.</label><input id="power" name="powerHp" inputmode="numeric"></div>
+          <div class="field"><label for="body-number">Номер кузова</label><input id="body-number" name="bodyNumber"><small>Заполните по СТС, ПТС или ЭПТС, если поле пустое.</small></div>
+          <div class="field"><label for="chassis-number">Номер шасси (рамы)</label><input id="chassis-number" name="chassisNumber"><small>Заполните вручную, если применимо.</small></div>
+          <div class="field"><label for="sts">Серия и номер СТС</label><input id="sts" name="sts"><small>Проверьте по оригиналу свидетельства о регистрации.</small></div>
+          <div class="field"><label for="category">Категория ТС</label><input id="category" name="category" placeholder="Например, B"></div>
+          <div class="field"><label for="record-status">Регистрационный статус</label><input id="record-status" name="recordStatus"></div>
+          <div class="field"><label for="registration-date">Дата регистрации</label><input id="registration-date" name="registrationDate"></div>
+        </div>
+      </form>
+      <aside class="notice">Данные из внешнего источника носят справочный характер. Перед подписанием договора купли-продажи обязательно сверьте все реквизиты с оригиналами СТС, ПТС или ЭПТС.</aside>
+    </section>
+
+    <p class="footer">Сервис не хранит данные в браузере после закрытия страницы. API-ключи внешних сервисов на странице не используются.</p>
   </main>
+
   <script>
     'use strict';
+
     const FUNCTION_URL = 'https://functions.yandexcloud.net/d4e6gg7qd3tlqotvn86c';
-    const MAX_FILE_SIZE = 10 * 1024 * 1024;
-    const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
-    const fileInput = document.getElementById('fileInput');
-    const dropzone = document.getElementById('dropzone');
-    const fileInfo = document.getElementById('fileInfo');
-    const recognizeButton = document.getElementById('recognizeButton');
-    const clearButton = document.getElementById('clearButton');
+    const form = document.getElementById('lookup-form');
+    const plateInput = document.getElementById('plate');
+    const searchButton = document.getElementById('search-button');
     const statusBox = document.getElementById('status');
-    const result = document.getElementById('result');
-    const resultMeta = document.getElementById('resultMeta');
-    const resultText = document.getElementById('resultText');
-    let selectedFile = null;
-    function formatBytes(bytes) { if (bytes < 1024) return bytes + ' Б'; if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' КБ'; return (bytes / (1024 * 1024)).toFixed(2) + ' МБ'; }
-    function showStatus(type, text) { statusBox.className = 'status ' + type; statusBox.textContent = text; }
-    function hideStatus() { statusBox.className = 'status'; statusBox.textContent = ''; }
-    function resetResult() { result.style.display = 'none'; resultMeta.textContent = ''; resultText.textContent = ''; }
-    function resetFile() { selectedFile = null; fileInput.value = ''; fileInfo.style.display = 'none'; fileInfo.textContent = ''; recognizeButton.disabled = true; clearButton.disabled = true; hideStatus(); resetResult(); }
-    function selectFile(file) {
-      resetResult(); hideStatus();
-      if (!file) { resetFile(); return; }
-      if (ALLOWED_TYPES.indexOf(file.type) === -1) { resetFile(); showStatus('error', 'Неподдерживаемый тип файла. Выберите PDF, JPG, JPEG или PNG.'); return; }
-      if (file.size > MAX_FILE_SIZE) { resetFile(); showStatus('error', 'Размер файла превышает 10 МБ. Выберите файл меньшего размера.'); return; }
-      selectedFile = file;
-      fileInfo.style.display = 'block';
-      fileInfo.textContent = 'Выбран файл: ' + file.name + ' · ' + formatBytes(file.size) + ' · ' + file.type;
-      recognizeButton.disabled = false; clearButton.disabled = false;
+    const card = document.getElementById('vehicle-card');
+    const image = document.getElementById('vehicle-image');
+    const photo = document.getElementById('photo');
+    const registryStatus = document.getElementById('registry-status');
+
+    const fields = {
+      plate: document.getElementById('dkp-plate'),
+      vin: document.getElementById('vin'),
+      brand: document.getElementById('brand'),
+      model: document.getElementById('model'),
+      year: document.getElementById('year'),
+      color: document.getElementById('color'),
+      engineVolume: document.getElementById('engine-volume'),
+      powerHp: document.getElementById('power'),
+      bodyNumber: document.getElementById('body-number'),
+      chassisNumber: document.getElementById('chassis-number'),
+      sts: document.getElementById('sts'),
+      category: document.getElementById('category'),
+      recordStatus: document.getElementById('record-status'),
+      registrationDate: document.getElementById('registration-date')
+    };
+
+    function normalizePlate(value) {
+      return String(value || '')
+        .toUpperCase()
+        .replace(/\s+/g, '')
+        .replace(/[^АВЕКМНОРСТУХABEKMHOPCTYX0-9]/g, '');
     }
-    function fileToBase64(file) { return new Promise(function(resolve, reject) { const reader = new FileReader(); reader.onload = function() { const value = String(reader.result || ''); const commaPosition = value.indexOf(','); resolve(commaPosition >= 0 ? value.slice(commaPosition + 1) : value); }; reader.onerror = function() { reject(new Error('Не удалось прочитать выбранный файл.')); }; reader.readAsDataURL(file); }); }
-    async function recognize() {
-      if (!selectedFile) { showStatus('error', 'Сначала выберите файл.'); return; }
-      recognizeButton.disabled = true; clearButton.disabled = true; resetResult();
-      showStatus('info', 'Читаем файл и отправляем в Yandex Vision OCR… Это может занять до нескольких минут для PDF.');
+
+    function showStatus(message, type) {
+      statusBox.textContent = message;
+      statusBox.className = `status show ${type}`;
+    }
+
+    function setValue(field, value) {
+      field.value = value === null || value === undefined ? '' : String(value);
+    }
+
+    function fillCard(data) {
+      const vehicle = data.vehicle || {};
+      const brandModel = [vehicle.brand, vehicle.model].filter(Boolean).join(' ');
+      const title = [brandModel, vehicle.year].filter(Boolean).join(' · ');
+
+      setValue(fields.plate, data.plate);
+      setValue(fields.vin, vehicle.vin);
+      setValue(fields.brand, vehicle.brand);
+      setValue(fields.model, vehicle.model);
+      setValue(fields.year, vehicle.year);
+      setValue(fields.color, vehicle.color);
+      setValue(fields.engineVolume, vehicle.engineVolume);
+      setValue(fields.powerHp, vehicle.powerHp);
+      setValue(fields.bodyNumber, vehicle.bodyNumber);
+      setValue(fields.chassisNumber, vehicle.chassisNumber);
+      setValue(fields.sts, vehicle.sts);
+      setValue(fields.category, vehicle.category);
+      setValue(fields.recordStatus, vehicle.recordStatus);
+      setValue(fields.registrationDate, vehicle.registrationDate);
+
+      document.getElementById('vehicle-name').textContent = title || 'Автомобиль';
+      document.getElementById('vehicle-vin').textContent = vehicle.vin ? `VIN: ${vehicle.vin}` : 'VIN: не указан';
+
+      if (vehicle.imageUrl) {
+        image.src = vehicle.imageUrl;
+        image.hidden = false;
+        photo.classList.remove('empty');
+      } else {
+        image.removeAttribute('src');
+        image.hidden = true;
+        photo.classList.add('empty');
+      }
+
+      const registry = data.registry || {};
+      registryStatus.hidden = false;
+      if (registry.available) {
+        registryStatus.textContent = 'Регистрационные сведения получены. Проверьте их по оригиналам документов.';
+        registryStatus.className = 'registry ok';
+      } else {
+        registryStatus.textContent = registry.message || 'Регистрационные сведения не найдены. Заполните поля по документам автомобиля.';
+        registryStatus.className = 'registry warn';
+      }
+
+      card.classList.add('show');
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    plateInput.addEventListener('input', () => {
+      plateInput.value = normalizePlate(plateInput.value);
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const plate = normalizePlate(plateInput.value);
+
+      if (!plate) {
+        showStatus('Введите государственный регистрационный номер.', 'error');
+        plateInput.focus();
+        return;
+      }
+
+      searchButton.disabled = true;
+      searchButton.textContent = 'Идёт поиск…';
+      showStatus('Получаем сведения об автомобиле. Это может занять до 30 секунд.', 'loading');
+
       try {
-        const base64 = await fileToBase64(selectedFile);
-        const response = await fetch(FUNCTION_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'ocr', fileName: selectedFile.name, mimeType: selectedFile.type, fileBase64: base64 }) });
-        let envelope;
-        try { envelope = await response.json(); } catch (error) { throw new Error('Cloud Function вернула ответ не в формате JSON.'); }
-        let payload = envelope;
-        if (typeof envelope.body === 'string') { try { payload = JSON.parse(envelope.body); } catch (error) { throw new Error('Не удалось прочитать ответ Cloud Function.'); } }
-        if (!response.ok || !payload.ok) { throw new Error(payload.error || ('Ошибка Cloud Function: HTTP ' + response.status)); }
-        resultMeta.textContent = 'Файл: ' + payload.fileName + ' · Страниц: ' + payload.pages + ' · Символов: ' + payload.characters;
-        resultText.textContent = payload.text || ''; result.style.display = 'block'; showStatus('success', 'Готово: текст успешно распознан.');
-      } catch (error) { showStatus('error', 'Ошибка распознавания: ' + (error.message || 'неизвестная ошибка')); }
-      finally { recognizeButton.disabled = !selectedFile; clearButton.disabled = !selectedFile; }
-    }
-    fileInput.addEventListener('change', function(event) { selectFile(event.target.files && event.target.files[0]); });
-    recognizeButton.addEventListener('click', recognize); clearButton.addEventListener('click', resetFile);
-    ['dragenter', 'dragover'].forEach(function(eventName) { dropzone.addEventListener(eventName, function(event) { event.preventDefault(); dropzone.classList.add('dragover'); }); });
-    ['dragleave', 'drop'].forEach(function(eventName) { dropzone.addEventListener(eventName, function(event) { event.preventDefault(); dropzone.classList.remove('dragover'); }); });
-    dropzone.addEventListener('drop', function(event) { const files = event.dataTransfer && event.dataTransfer.files; selectFile(files && files[0]); });
+        const response = await fetch(FUNCTION_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'lookup_vehicle_full', plate })
+        });
+
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          throw new Error('Функция вернула некорректный ответ.');
+        }
+
+        if (!response.ok || !data.ok) {
+          throw new Error(data.error || `Ошибка запроса: HTTP ${response.status}`);
+        }
+
+        fillCard(data);
+        showStatus('Карточка автомобиля заполнена. Проверьте данные по оригиналам документов.', 'success');
+      } catch (error) {
+        const message = error instanceof TypeError
+          ? 'Не удалось обратиться к функции. Проверьте подключение, публичный доступ функции и настройку CORS.'
+          : (error.message || 'Не удалось выполнить поиск.');
+        showStatus(message, 'error');
+      } finally {
+        searchButton.disabled = false;
+        searchButton.textContent = 'Найти автомобиль';
+      }
+    });
   </script>
 </body>
 </html>
