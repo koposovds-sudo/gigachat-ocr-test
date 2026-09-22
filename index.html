@@ -98,7 +98,7 @@
     .cam-stage { position: relative; flex: 1; overflow: hidden; }
     .cam-stage video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
     .cam-frame { position: absolute; border: 3px solid rgba(255,255,255,.95); border-radius: 10px; box-shadow: 0 0 0 100vmax rgba(4,10,20,.58); pointer-events: none; }
-    .cam-frame::after { content: attr(data-hint); position: absolute; left: 0; right: 0; bottom: -30px; color: #fff; font-size: 12px; font-weight: 600; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+    .cam-frame::after { content: attr(data-hint); position: absolute; left: -20px; right: -20px; bottom: -34px; color: #fff; font-size: 12px; font-weight: 600; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
     .cam-zone { position: absolute; border: 2px dashed rgba(255,214,94,.95); border-radius: 6px; display: flex; align-items: center; justify-content: center; }
     .cam-zone span { color: #ffd65e; font-size: 11px; font-weight: 700; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.7); padding: 2px; }
     .cam-zone.turned span { writing-mode: vertical-rl; }
@@ -469,14 +469,14 @@
       // вертикально у правого края, MRZ — двумя строками внизу.
       main: {
         pageRatio: 176 / 125,
-        hint: 'Разворот с фото — 2 страницы целиком',
+        hint: 'Разворот с фото — 2 страницы',
         seriesEdge: 'right',
         showMrz: true,
       },
       // Страница с пропиской — одна страница, 88 × 125 мм, серия и номер снизу.
       reg: {
         pageRatio: 88 / 125,
-        hint: 'Страница с пропиской — 1 страница целиком',
+        hint: 'Страница с пропиской — 1 страница',
         seriesEdge: 'bottom',
         showMrz: false,
       },
@@ -728,9 +728,7 @@
       frame.style.height = `${Math.round(height)}px`;
       frame.style.left   = `${Math.round((stage.clientWidth  - width)  / 2)}px`;
       frame.style.top    = `${Math.round((stage.clientHeight - height) / 2)}px`;
-      frame.dataset.hint = cameraSession.turned
-        ? `${preset.hint} — серия и номер внизу`
-        : preset.hint;
+      frame.dataset.hint = preset.hint;
 
       layoutCameraZones(preset);
     }
@@ -745,28 +743,30 @@
       const seriesEdge = cameraSession.turned ? TURNED_EDGE[preset.seriesEdge] : preset.seriesEdge;
       const mrzEdge    = cameraSession.turned ? TURNED_EDGE.bottom : 'bottom';
 
-      placeCameraZone('cam-series', seriesEdge, 10);
+      placeCameraZone('cam-series', seriesEdge, 10, mrzEdge);
       const mrz = document.getElementById('cam-mrz');
       if (!preset.showMrz) {
         mrz.style.display = 'none';
       } else {
         mrz.style.display = 'flex';
-        placeCameraZone('cam-mrz', mrzEdge, 16);
+        placeCameraZone('cam-mrz', mrzEdge, 16, seriesEdge);
       }
     }
 
-    function placeCameraZone(id, edge, thicknessPercent) {
+    function placeCameraZone(id, edge, thicknessPercent, neighbourEdge) {
       const zone = document.getElementById(id);
       const t    = `${thicknessPercent}%`;
       const pad  = '3%';
+      // Со стороны соседней зоны отступаем больше, чтобы полосы не пересекались.
+      const gap  = (side) => (side === neighbourEdge ? '16%' : pad);
 
       zone.style.cssText = zone.style.cssText
         .replace(/(top|right|bottom|left|width|height):[^;]*;?/g, '');
 
-      if (edge === 'bottom') Object.assign(zone.style, { left: pad, right: pad, bottom: pad, top: 'auto', width: 'auto', height: t });
-      if (edge === 'top')    Object.assign(zone.style, { left: pad, right: pad, top: pad, bottom: 'auto', width: 'auto', height: t });
-      if (edge === 'right')  Object.assign(zone.style, { top: pad, bottom: pad, right: pad, left: 'auto', height: 'auto', width: t });
-      if (edge === 'left')   Object.assign(zone.style, { top: pad, bottom: pad, left: pad, right: 'auto', height: 'auto', width: t });
+      if (edge === 'bottom') Object.assign(zone.style, { left: gap('left'), right: gap('right'), bottom: pad, top: 'auto', width: 'auto', height: t });
+      if (edge === 'top')    Object.assign(zone.style, { left: gap('left'), right: gap('right'), top: pad, bottom: 'auto', width: 'auto', height: t });
+      if (edge === 'right')  Object.assign(zone.style, { top: gap('top'), bottom: gap('bottom'), right: pad, left: 'auto', height: 'auto', width: t });
+      if (edge === 'left')   Object.assign(zone.style, { top: gap('top'), bottom: gap('bottom'), left: pad, right: 'auto', height: 'auto', width: t });
 
       // Вертикальную полосу подписываем вертикальным текстом, иначе он не влезает.
       zone.classList.toggle('turned', edge === 'right' || edge === 'left');
