@@ -1234,7 +1234,42 @@ function extractBirthPlace(text) {
   return titleCaseRus(fragment);
 }
 
+/*
+ * Vision отдаёт и целые строки, и те же слова по отдельности, поэтому
+ * «Кем выдан» собираем построчно от подписи «Паспорт выдан» до даты выдачи,
+ * выбрасывая однословные повторы уже собранного.
+ */
+function extractIssuedByFromLines(text) {
+  const lines = stripMrz(text)
+    .split(/\n+/)
+    .map((line) => normalizeSpaces(line))
+    .filter(Boolean);
+
+  const start = lines.findIndex((line) => /ПАСПОРТ\s*ВЫДАН/.test(upperRus(line)));
+  if (start < 0) return '';
+
+  const collected = [];
+  for (let i = start + 1; i < lines.length && collected.length < 6; i += 1) {
+    const line  = lines[i];
+    const upper = upperRus(line);
+
+    if (/ДАТА\s*ВЫДАЧИ|КОД\s*ПОДРАЗДЕЛ|ЛИЧНЫЙ|ЛИЧНАЯ|ПОДПИСЬ|ФАМИЛИЯ/.test(upper)) break;
+    if (/^\d/.test(upper)) break;
+    if (!hasCyrillic(line)) continue;
+
+    const words = upper.split(/\s+/).filter(Boolean);
+    if (words.length === 1 && collected.some((part) => upperRus(part).includes(words[0]))) continue;
+
+    collected.push(line);
+  }
+
+  return cleanIssuedBy(collected.join(' '));
+}
+
 function extractIssuedBy(text) {
+  const byLines = extractIssuedByFromLines(text);
+  if (byLines) return byLines;
+
   const normalized = stripMrz(text);
   const upper      = upperRus(normalized);
   const idx        = upper.indexOf('КОД ПОДРАЗДЕЛЕНИЯ');
@@ -1385,6 +1420,67 @@ const FIELD_PRIORITY = {
   registrationAddress: ['llm', 'text', 'entities'],
 };
 
+/*
+ * Защита от домыслов: шаблонная модель Vision и языковая модель иногда
+ * возвращают значения, которых в тексте нет вовсе (видели «ТП № 11 ОУФМС»
+ * и дату 29.03.2011 там, где в бланке «ГУ МВД» и 29.03.2021).
+ * Поэтому каждое смысловое значение сверяем с сырым текстом OCR.
+ */
+function ocrHaystack(...texts) {
+  return upperRus(texts.filter(Boolean).join(' '))
+    .replace(/[^А-ЯЁA-Z0-9]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+function supportsDate(haystack, value) {
+  const digits = onlyDigits(value);
+  if (digits.length !== 8) return true;
+  const haystackDigits = onlyDigits(haystack);
+  // Год может быть распознан частично, поэтому достаточно совпадения дня, месяца и года.
+  return haystackDigits.includes(digits) || haystack.includes(value);
+}
+
+function supportsText(haystack, value) {
+  const words = upperRus(value)
+    .replace(/[^А-ЯЁA-Z0-9]+/g, ' ')
+    .split(' ')
+    .filter((word) => word.length >= 4);
+
+  if (!words.length) return true;
+
+  const present = words.filter((word) => haystack.includes(word)).length;
+  return present / words.length >= 0.6;
+}
+
+const SUPPORT_CHECKS = {
+  lastName:            supportsText,
+  firstName:           supportsText,
+  middleName:          supportsText,
+  birthPlace:          supportsText,
+  issuedBy:            supportsText,
+  registrationAddress: supportsText,
+  birthDate:           supportsDate,
+  issueDate:           supportsDate,
+};
+
+function dropUnsupportedFields(person, haystack) {
+  const kept     = {};
+  const rejected = {};
+
+  for (const [field, value] of Object.entries(asObject(person))) {
+    const check = SUPPORT_CHECKS[field];
+    if (!value || !check || check(haystack, value)) {
+      kept[field] = value;
+    } else {
+      kept[field] = '';
+      rejected[field] = value;
+    }
+  }
+
+  return { person: kept, rejected };
+}
+
 function mergePassportSources(candidates) {
   const person      = {};
   const fieldSource = {};
@@ -1416,13 +1512,21 @@ async function extractPassport(input) {
     registrationPage = validatePassportFile(input.registrationPage, 'registrationPage');
   }
 
-  // Основной разворот — шаблонная модель passport: поля приходят уже структурированными.
-  const mainResult = await recognizePassportPageRaw(mainPage, 'passport');
+  /*
+   * Основной разворот читаем двумя моделями сразу:
+   * - 'page' даёт полный текст вместе с MRZ (шаблонная модель MRZ не отдаёт);
+   * - 'passport' даёт структурированные поля, но её текст бывает недостоверным.
+   */
+  const [templateResult, plainResult, registrationResult] = await Promise.all([
+    recognizePassportPageRaw(mainPage, 'passport'),
+    recognizePassportPageRaw(mainPage, 'page'),
+    registrationPage
+      ? recognizePassportPageRaw(registrationPage, 'page')
+      : Promise.resolve({ text: '', lines: [], entities: {} }),
+  ]);
 
-  // Страница регистрации — шаблонной модели нет, читаем обычным текстом.
-  const registrationResult = registrationPage
-    ? await recognizePassportPageRaw(registrationPage, 'page')
-    : { text: '', lines: [], entities: {} };
+  // Дальше «основной текст» — это вывод обычной модели: он полнее и содержит MRZ.
+  const mainResult = { ...plainResult, entities: templateResult.entities };
 
   // MRZ может попасть и на страницу регистрации (там дублируются серия и номер).
   const mrz          = parseMrz(mainResult.text) || parseMrz(registrationResult.text);
@@ -1438,16 +1542,21 @@ async function extractPassport(input) {
     mrz
   );
 
+  // Сверяем всё, кроме MRZ, с сырым текстом OCR — он единственный источник истины.
+  const haystack        = ocrHaystack(plainResult.text, registrationResult.text);
+  const checkedEntities = dropUnsupportedFields(fromEntities, haystack);
+  const checkedLlm      = dropUnsupportedFields(llmResult.person || {}, haystack);
+
   const merged = mergePassportSources({
     mrz:      fromMrz || {},
-    entities: fromEntities,
-    llm:      llmResult.person || {},
+    entities: checkedEntities.person,
+    llm:      checkedLlm.person,
     text:     fromText,
   });
 
   const person       = merged.person;
   const usedEntities = countFilled(fromEntities) > 0;
-  const usedLlm      = Boolean(llmResult.person) && countFilled(llmResult.person) > 0;
+  const usedLlm      = countFilled(checkedLlm.person) > 0;
 
   const warnings = buildWarnings(person, mainResult.text, registrationResult.text);
   if (!usedEntities) {
@@ -1485,6 +1594,8 @@ async function extractPassport(input) {
     // Диагностика: видна только владельцу страницы, помогает понять, что прочитал OCR.
     debug: input.debug === true ? {
       mrzRaw:                mrz || null,
+      rejected:              { entities: checkedEntities.rejected, llm: checkedLlm.rejected },
+      templateTextPreview:   String(templateResult.text || '').slice(0, 800),
       mrzPerson:             fromMrz || null,
       entities:              mainResult.entities,
       mainTextPreview:       String(mainResult.text || '').slice(0, 1500),
