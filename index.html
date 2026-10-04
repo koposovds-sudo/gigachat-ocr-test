@@ -110,6 +110,50 @@
     .cam-msg.err { color: #ff9b91; }
     .ocr-row { display: flex; gap: 12px; align-items: center; margin-top: 14px; }
     .missing-badge { display: inline-block; padding: 2px 8px; border-radius: 5px; background: #fff3cd; color: #7a4f00; font-size: 12px; font-weight: 600; margin-left: 6px; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+    .btn-row button { width: auto; }
+    .dkp-preview-wrap { display: none; margin-top: 18px; overflow: auto; max-height: 70vh; border: 1px solid var(--line); border-radius: 12px; background: #ececec; padding: 16px; }
+    .dkp-preview-wrap.show { display: block; }
+
+    .dkp-sheet {
+      width: 210mm;
+      min-height: 297mm;
+      margin: 0 auto;
+      padding: 14mm 14mm 12mm;
+      background: #fff;
+      color: #111;
+      font: 11pt/1.35 "Times New Roman", Times, serif;
+      box-shadow: 0 8px 28px rgba(0,0,0,.12);
+    }
+    .dkp-sheet h1 {
+      margin: 0 0 10px;
+      font-size: 16pt;
+      text-align: center;
+      letter-spacing: 0;
+      line-height: 1.25;
+    }
+    .dkp-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .dkp-cell { border: 1px solid #222; padding: 6px 8px; min-height: 46px; }
+    .dkp-cell .cap { display: block; font-size: 8pt; color: #555; font-family: Arial, sans-serif; margin-top: 4px; }
+    .dkp-cell .val { font-weight: 700; }
+    .dkp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+    .dkp-text { text-align: justify; font-size: 10.5pt; }
+    .dkp-text p { margin: 0 0 7px; }
+    .dkp-text h2 { font-size: 11.5pt; margin: 10px 0 6px; }
+    .dkp-sign { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 12px; }
+    .dkp-sign .cap { font-size: 8pt; color: #555; font-family: Arial, sans-serif; }
+    .dkp-sign-line { border-bottom: 1px solid #111; min-height: 28px; margin: 10px 0 4px; }
+    .dkp-got { margin-top: 8px; font-size: 10.5pt; }
+
+    @media print {
+      @page { size: A4; margin: 10mm; }
+      body { background: #fff !important; }
+      .no-print, .cam { display: none !important; }
+      .container { width: auto; max-width: none; padding: 0; }
+      .card { margin: 0; padding: 0; border: 0; box-shadow: none; background: transparent; }
+      .dkp-preview-wrap { display: block !important; max-height: none; overflow: visible; border: 0; background: transparent; padding: 0; }
+      .dkp-sheet { box-shadow: none; width: auto; min-height: 0; padding: 0; }
+    }
 
     @media (max-width: 640px) {
       .container { width: min(100% - 24px, 1080px); padding-top: 28px; }
@@ -124,13 +168,13 @@
 </head>
 <body>
   <main class="container">
-    <header class="hero">
+    <header class="hero no-print">
       <h1>Карточка ДКП</h1>
-      <p class="lead">Поиск автомобиля по госномеру и распознавание паспортов сторон договора купли-продажи.</p>
+      <p class="lead">Поиск автомобиля по госномеру, распознавание паспортов и готовый договор купли-продажи для печати.</p>
     </header>
 
     <!-- ===== БЛОК 1: АВТОМОБИЛЬ ===== -->
-    <section class="card" aria-labelledby="lookup-title">
+    <section class="card no-print" aria-labelledby="lookup-title">
       <h2 id="lookup-title">Автомобиль</h2>
       <form id="lookup-form" novalidate>
         <div class="search-row">
@@ -145,7 +189,7 @@
       <div id="status" class="status" role="status" aria-live="polite"></div>
     </section>
 
-    <section id="vehicle-card" class="card vehicle" aria-labelledby="vehicle-title">
+    <section id="vehicle-card" class="card vehicle no-print" aria-labelledby="vehicle-title">
       <h2 id="vehicle-title">Сведения об автомобиле</h2>
       <div class="vehicle-top">
         <div id="photo" class="photo empty"><img id="vehicle-image" alt="Фото автомобиля" hidden></div>
@@ -167,8 +211,17 @@
           <div class="field"><label for="power">Мощность, л. с.</label><input id="power" name="powerHp" inputmode="numeric"></div>
           <div class="field"><label for="body-number">Номер кузова</label><input id="body-number" name="bodyNumber"><small>Заполните по СТС, ПТС или ЭПТС, если поле пустое.</small></div>
           <div class="field"><label for="chassis-number">Номер шасси (рамы)</label><input id="chassis-number" name="chassisNumber"><small>Заполните вручную, если применимо.</small></div>
-          <div class="field"><label for="sts">Серия и номер СТС</label><input id="sts" name="sts"><small>Проверьте по оригиналу свидетельства о регистрации.</small></div>
+          <div class="field"><label for="sts">Серия и номер СТС</label><input id="sts" name="sts"><small>Например, 7805 712620. Проверьте по оригиналу.</small></div>
+          <div class="field"><label for="sts-issuer">СТС выдано</label><input id="sts-issuer" name="stsIssuer" placeholder="Орган выдачи СТС"></div>
+          <div class="field"><label for="sts-date">Дата выдачи СТС</label><input id="sts-date" name="stsDate" placeholder="29.01.2013"></div>
           <div class="field"><label for="category">Категория ТС</label><input id="category" name="category" placeholder="Например, B"></div>
+          <div class="field"><label for="vehicle-type">Тип ТС</label><input id="vehicle-type" name="vehicleType" placeholder="Легковой"></div>
+          <div class="field"><label for="mileage">Пробег, км</label><input id="mileage" name="mileage" inputmode="numeric"></div>
+          <div class="field"><label for="engine-model">Модель двигателя</label><input id="engine-model" name="engineModel"></div>
+          <div class="field"><label for="engine-number">Номер двигателя</label><input id="engine-number" name="engineNumber"></div>
+          <div class="field"><label for="pts-number">ПТС, серия/номер</label><input id="pts-number" name="ptsNumber"></div>
+          <div class="field"><label for="pts-issuer">ПТС кем выдан</label><input id="pts-issuer" name="ptsIssuer"></div>
+          <div class="field"><label for="pts-date">Дата выдачи ПТС</label><input id="pts-date" name="ptsDate" placeholder="30.10.2012"></div>
           <div class="field"><label for="record-status">Регистрационный статус</label><input id="record-status" name="recordStatus"></div>
           <div class="field"><label for="registration-date">Дата регистрации</label><input id="registration-date" name="registrationDate"></div>
         </div>
@@ -177,7 +230,7 @@
     </section>
 
     <!-- ===== БЛОК 2: ПАСПОРТА СТОРОН ===== -->
-    <section class="card" aria-labelledby="passport-title">
+    <section class="card no-print" aria-labelledby="passport-title">
       <h2 id="passport-title">Стороны договора</h2>
       <p style="margin:8px 0 20px; color:var(--muted); font-size:14px;">Загрузите фото или скан основного разворота паспорта и страницы регистрации. Данные будут распознаны и заполнены в карточку для проверки.</p>
 
@@ -275,7 +328,32 @@
       </div>
     </section>
 
-    <p class="footer">Сервис не хранит данные в браузере после закрытия страницы. API-ключи внешних сервисов на странице не используются.</p>
+    <section class="card" aria-labelledby="contract-title">
+      <h2 id="contract-title" class="no-print">Договор купли-продажи</h2>
+      <p class="no-print" style="margin:8px 0 20px; color:var(--muted); font-size:14px;">Бланк совпадает с готовым ДКП: реквизиты сторон, карточка ТС, цена прописью, гарантии и подписи. Сохраните через «Печать» → «Сохранить как PDF».</p>
+      <div class="grid no-print">
+        <div class="field">
+          <label for="dkp-place">Место составления</label>
+          <input id="dkp-place" value="Санкт-Петербург">
+        </div>
+        <div class="field">
+          <label for="dkp-date">Дата составления</label>
+          <input id="dkp-date" type="date">
+        </div>
+        <div class="field">
+          <label for="dkp-price">Стоимость ТС, руб.</label>
+          <input id="dkp-price" inputmode="numeric" placeholder="455000">
+        </div>
+      </div>
+      <div class="btn-row no-print">
+        <button type="button" id="build-dkp">Сформировать договор</button>
+        <button type="button" class="btn-secondary" id="print-dkp" disabled>Печать / PDF</button>
+      </div>
+      <div id="dkp-status" class="status no-print" role="status" aria-live="polite"></div>
+      <div class="dkp-preview-wrap" id="dkp-preview-wrap"></div>
+    </section>
+
+    <p class="footer no-print">Сервис не хранит данные в браузере после закрытия страницы. API-ключи внешних сервисов на странице не используются.</p>
   </main>
 
   <!-- Режим съёмки: рамка-гид с пропорциями бланка паспорта -->
@@ -364,6 +442,13 @@
       setValue(vehicleFields.category, vehicle.category);
       setValue(vehicleFields.recordStatus, vehicle.recordStatus);
       setValue(vehicleFields.registrationDate, vehicle.registrationDate);
+
+      const typeEl = document.getElementById('vehicle-type');
+      if (typeEl && !typeEl.value) {
+        const cat = String(vehicle.category || '').toUpperCase();
+        if (cat === 'B' || cat === 'В') typeEl.value = 'Легковой';
+        else if (cat === 'C' || cat === 'С') typeEl.value = 'Грузовой';
+      }
 
       document.getElementById('vehicle-name').textContent = title || 'Автомобиль';
       document.getElementById('vehicle-vin').textContent = vehicle.vin ? `VIN: ${vehicle.vin}` : 'VIN: не указан';
@@ -1114,6 +1199,251 @@
         btn.textContent = btnLabel;
       }
     }
+
+    /* ─── Договор по образцу готового ДКП ─── */
+
+    (function initDealDate() {
+      const el = document.getElementById('dkp-date');
+      const d = new Date();
+      el.value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    })();
+
+    function val(id) {
+      const el = document.getElementById(id);
+      return el ? String(el.value || '').trim() : '';
+    }
+
+    function dash(value, fallback) {
+      const text = String(value || '').trim();
+      return text || fallback;
+    }
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function formatMoney(n) {
+      return new Intl.NumberFormat('ru-RU').format(n);
+    }
+
+    function plural(n, one, few, many) {
+      const n10 = n % 10, n100 = n % 100;
+      if (n10 === 1 && n100 !== 11) return one;
+      if (n10 >= 2 && n10 <= 4 && (n100 < 12 || n100 > 14)) return few;
+      return many;
+    }
+
+    function tripletToWords(num, female) {
+      const onesM = ['', 'один', 'два', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+      const onesF = ['', 'одна', 'две', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+      const ones = female ? onesF : onesM;
+      const teens = ['десять', 'одиннадцать', 'двенадцать', 'тринадцать', 'четырнадцать', 'пятнадцать', 'шестнадцать', 'семнадцать', 'восемнадцать', 'девятнадцать'];
+      const tens = ['', '', 'двадцать', 'тридцать', 'сорок', 'пятьдесят', 'шестьдесят', 'семьдесят', 'восемьдесят', 'девяносто'];
+      const hundreds = ['', 'сто', 'двести', 'триста', 'четыреста', 'пятьсот', 'шестьсот', 'семьсот', 'восемьсот', 'девятьсот'];
+      const h = Math.floor(num / 100), t = Math.floor((num % 100) / 10), o = num % 10, rest = num % 100;
+      const parts = [];
+      if (h) parts.push(hundreds[h]);
+      if (rest >= 10 && rest <= 19) parts.push(teens[rest - 10]);
+      else {
+        if (t) parts.push(tens[t]);
+        if (o) parts.push(ones[o]);
+      }
+      return parts.join(' ');
+    }
+
+    function numberToWords(n) {
+      n = Math.floor(Math.abs(Number(n)));
+      if (!n) return 'ноль рублей';
+      const billions = Math.floor(n / 1e9);
+      const millions = Math.floor(n % 1e9 / 1e6);
+      const thousands = Math.floor(n % 1e6 / 1e3);
+      const rest = n % 1000;
+      const parts = [];
+      if (billions) parts.push(tripletToWords(billions, false), plural(billions, 'миллиард', 'миллиарда', 'миллиардов'));
+      if (millions) parts.push(tripletToWords(millions, false), plural(millions, 'миллион', 'миллиона', 'миллионов'));
+      if (thousands) parts.push(tripletToWords(thousands, true), plural(thousands, 'тысяча', 'тысячи', 'тысяч'));
+      if (rest) parts.push(tripletToWords(rest, false));
+      parts.push(plural(n, 'рубль', 'рубля', 'рублей'));
+      const text = parts.join(' ').replace(/\s+/g, ' ').trim();
+      return text.charAt(0).toUpperCase() + text.slice(1);
+    }
+
+    function parseDateParts(raw) {
+      const s = String(raw || '').trim();
+      let m = s.match(/^(\d{2})[.\/-](\d{2})[.\/-](\d{4})$/);
+      if (m) return { d: m[1], mo: m[2], y: m[3] };
+      m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (m) return { d: m[3], mo: m[2], y: m[1] };
+      return null;
+    }
+
+    function formatDotDate(raw) {
+      const p = parseDateParts(raw);
+      return p ? `${p.d}.${p.mo}.${p.y}` : sOrBlank(raw);
+    }
+
+    function sOrBlank(raw) {
+      return String(raw || '').trim();
+    }
+
+    const MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+    function formatLongDate(raw) {
+      const p = parseDateParts(raw);
+      if (!p) return dash(raw, '« __ » ________ ____ г.');
+      const month = MONTHS_RU[Number(p.mo) - 1] || p.mo;
+      return `« ${Number(p.d)} » ${month} ${p.y} г.`;
+    }
+
+    function splitSts(raw) {
+      const compact = String(raw || '').replace(/\s+/g, '');
+      if (/^\d{10}$/.test(compact)) return { series: compact.slice(0, 4), number: compact.slice(4) };
+      const m = String(raw || '').match(/(\d{4})\D+(\d{6,})/);
+      if (m) return { series: m[1], number: m[2] };
+      return { series: String(raw || '').trim(), number: '' };
+    }
+
+    function ensurePassportFields(personType) {
+      const container = document.getElementById(`${personType}-fields`);
+      if (container && container.children.length) return;
+      renderPassportFields(personType, {}, [], []);
+    }
+
+    function personLine(personType) {
+      const last = val(`${personType}-lastName`);
+      const first = val(`${personType}-firstName`);
+      const middle = val(`${personType}-middleName`);
+      const fio = [last, first, middle].filter(Boolean).join(' ').toUpperCase();
+      const series = val(`${personType}-passportSeries`).replace(/\s+/g, '');
+      const number = val(`${personType}-passportNumber`).replace(/\s+/g, '');
+      const passport = `${series}${number}`;
+      return [
+        dash(fio, '________________'),
+        `род. ${dash(formatDotDate(val(`${personType}-birthDate`)), '__.__.____')}`,
+        `в ${dash(val(`${personType}-birthPlace`), '________________')}`,
+        `адрес: ${dash(val(`${personType}-registrationAddress`), '________________')}`,
+        `паспорт: ${dash(passport, '__________')}`,
+        `выдан: ${dash(formatDotDate(val(`${personType}-issueDate`)), '__.__.____')} ${dash(val(`${personType}-issuedBy`), '________________')}`,
+        `код подразделения: ${dash(val(`${personType}-departmentCode`), '___-___')}`,
+      ].join(', ');
+    }
+
+    function cell(value, caption) {
+      return `<div class="dkp-cell"><div class="val">${escapeHtml(dash(value, '—'))}</div><span class="cap">${escapeHtml(caption)}</span></div>`;
+    }
+
+    function buildContractHtml() {
+      ensurePassportFields('seller');
+      ensurePassportFields('buyer');
+
+      const priceNum = parseInt(String(val('dkp-price')).replace(/\s+/g, ''), 10);
+      if (!priceNum) throw new Error('Укажите стоимость транспортного средства.');
+      if (!val('seller-lastName') || !val('buyer-lastName')) {
+        throw new Error('Заполните фамилии продавца и покупателя — распознайте паспорта или введите данные вручную.');
+      }
+      if (!val('vin') && !val('dkp-plate')) {
+        throw new Error('Укажите VIN или госномер автомобиля.');
+      }
+
+      const sts = splitSts(val('sts'));
+      const stsIssuer = dash(val('sts-issuer'), '________________');
+      const stsDate = formatLongDate(val('sts-date') || val('registration-date'));
+      const priceFmt = formatMoney(priceNum);
+      const priceWords = numberToWords(priceNum);
+      const type = dash(val('vehicle-type'), 'Легковой');
+      const chassis = dash(val('chassis-number'), 'Отсутствует');
+      const body = dash(val('body-number'), val('vin'));
+      const enginePair = `${dash(val('engine-model'), '—')}  ${dash(val('engine-number'), '—')}`.trim();
+      const powerPair = `${dash(val('power'), '—')}  /  ${dash(val('engine-volume'), '—')}`;
+
+      return `
+        <article class="dkp-sheet" id="dkp-sheet">
+          <h1>Договор купли-продажи транспортного средства</h1>
+          <div class="dkp-meta">
+            ${cell(val('dkp-place'), 'Место составления договора')}
+            ${cell(formatDotDate(val('dkp-date')), 'Дата составления')}
+          </div>
+          ${cell(personLine('buyer'), 'ФИО покупателя, дата и место рождения, адрес места жительства, паспортные данные: серия, номер, кем выдан и когда')}
+          ${cell(personLine('seller'), 'ФИО продавца, дата и место рождения, адрес места жительства, паспортные данные: серия, номер, кем выдан и когда')}
+          <div class="dkp-grid">
+            ${cell(`${val('brand')} ${val('model')}`.trim(), 'Марка и модель транспортного средства')}
+            ${cell(val('vin'), 'Идентификационный номер (VIN)')}
+            ${cell(type, 'Тип (легковой, грузовой и т.д.)')}
+            ${cell(val('year'), 'Год изготовления')}
+            ${cell(val('mileage'), 'Пробег, км')}
+            ${cell(powerPair, 'Мощность двигателя, л.с. / Рабочий объем, куб. см')}
+            ${cell(val('color'), 'Цвет кузова')}
+            ${cell(enginePair, 'Модель двигателя / Номер двигателя')}
+            ${cell(chassis, 'Номер шасси, рамы')}
+            ${cell(body, 'Номер кузова')}
+            ${cell(val('pts-number'), 'Паспорт ТС, серия/номер')}
+            ${cell(val('pts-issuer'), 'Кем выдан')}
+            ${cell(formatDotDate(val('pts-date')), 'Дата выдачи')}
+            ${cell(val('dkp-plate'), 'Гос. Номер')}
+          </div>
+          <div class="dkp-text">
+            <p>именуемый(ая) в дальнейшем «Покупатель» с одной стороны, и именуемый(ая) в дальнейшем «Продавец» с другой стороны, и именуемые далее при совместном упоминании «Стороны», а по отдельности «Сторона», заключили настоящий договор (далее — «Договор») о нижеследующем:</p>
+            <h2>1. Предмет договора</h2>
+            <p>1.1 Продавец обязуется передать в собственность Покупателя, а Покупатель — принять и оплатить транспортное средство (далее — ТС).</p>
+            <p>1.2. Собственником ТС до его передачи Покупателю является Продавец (свидетельство о регистрации транспортного средства серия ${escapeHtml(dash(sts.series, '____'))} номер ${escapeHtml(dash(sts.number, '______'))} , выдано ${escapeHtml(stsIssuer)} ${escapeHtml(stsDate)})</p>
+            <p>Право собственности на ТС переходит к Покупателю с момента подписания настоящего Договора.</p>
+            <p>1.3. Передача ТС осуществляется Продавцом в момент передачи Покупателем Продавцу денежных средств в счет оплаты стоимости ТС согласно п. 2. Договора.</p>
+            <h2>2. Стоимость ТС и порядок расчетов</h2>
+            <p>2.1. Стоимость ТС составляет ${escapeHtml(priceFmt)} (${escapeHtml(priceWords)}) 00 копеек (НДС не облагается). Оплата стоимости ТС производится путем 100% предоплаты (наличным или безналичным расчетом).</p>
+            <h2>3. Гарантии и ответственность</h2>
+            <p>Продавец гарантирует Покупателю, что:</p>
+            <p>3.1. Продавец является собственником ТС.</p>
+            <p>3.2. ТС не является предметом обязательств Продавца перед третьими лицами, в том числе не является предметом залога, в отношении ТС не наложен запрет на совершение регистрационных действий, ТС не находится под арестом, не числится в базах данных МВД России как угнанное или похищенное транспортное средство и не имеет иных обременений.</p>
+            <p>3.3. В случае нарушения гарантий, указанных в п. 3.1 — 3.2 настоящего договора, Продавец обязуется незамедлительно возвратить Покупателю стоимость ТС в полном объеме со дня обнаружения соответствующего нарушения.</p>
+            <h2>4. Заключительные положения</h2>
+            <p>Настоящий Договор вступает в силу после его подписания Сторонами и действует до момента полного исполнения Сторонами своих обязательств по Договору. Договор составлен в трех экземплярах, имеющих равную юридическую силу.</p>
+            <h2>5. Подписи и реквизиты Сторон</h2>
+          </div>
+          <div class="dkp-sign">
+            <div>
+              <strong>Продавец</strong>
+              <div class="dkp-got">Денежные средства в сумме ${escapeHtml(priceFmt)} руб. получил.</div>
+              <div class="dkp-sign-line"></div>
+              <span class="cap">Продавец, подпись / Расшифровка</span>
+              <div class="dkp-sign-line"></div>
+              <span class="cap">Продавец, подпись / Расшифровка</span>
+            </div>
+            <div>
+              <strong>Покупатель</strong>
+              <div class="dkp-got">ТС получил</div>
+              <div class="dkp-sign-line"></div>
+              <span class="cap">Покупатель, подпись / Расшифровка</span>
+              <div class="dkp-sign-line"></div>
+              <span class="cap">Покупатель, подпись / Расшифровка</span>
+            </div>
+          </div>
+        </article>`;
+    }
+
+    document.getElementById('build-dkp').addEventListener('click', () => {
+      const statusEl = document.getElementById('dkp-status');
+      const wrap = document.getElementById('dkp-preview-wrap');
+      try {
+        wrap.innerHTML = buildContractHtml();
+        wrap.classList.add('show');
+        document.getElementById('print-dkp').disabled = false;
+        showStatus(statusEl, 'Договор собран. Проверьте реквизиты и сохраните через «Печать / PDF».', 'success');
+        wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (error) {
+        showStatus(statusEl, error.message || 'Не удалось сформировать договор.', 'error');
+      }
+    });
+
+    document.getElementById('print-dkp').addEventListener('click', () => {
+      if (!document.getElementById('dkp-sheet')) {
+        document.getElementById('build-dkp').click();
+      }
+      if (document.getElementById('dkp-sheet')) window.print();
+    });
   </script>
 </body>
 </html>
